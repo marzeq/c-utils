@@ -1452,7 +1452,6 @@ Description:
 Macro constants:
 
   DYN_ARR_INIT_CAPACITY - Initial dynamic array capacity.
-  DYN_ARR_GROWTH_FACTOR - Capacity growth multiplier.
 
 Functions/macros:
 
