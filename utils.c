@@ -13,7 +13,7 @@ Licensed in the public domain. Do whatever you want with it.
 Styleguide:
 - 2 space indentation,
 - pointers aligned to the type (int* ptr, not int *ptr),
-- use snake_case for functions, variables and types,
+- use snake_case for functions, function-like macros, variables and types,
 - use ALL_CAPS for macro expansions and macro constants,
 - use shorthands defined below always.
 */
@@ -62,6 +62,7 @@ typedef ptrdiff_t isz;
 
 #include <sys/random.h>
 #include <errno.h>
+#include <assert.h>
 
 static inline u64 random_u64(void) {
   u64 value = 0;
@@ -79,7 +80,7 @@ static inline u64 random_u64(void) {
         continue;
       }
 
-      abort();
+      assert(0 && "getrandom failed");
     }
 
     offset += (usz)result;
