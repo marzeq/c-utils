@@ -60,6 +60,9 @@ typedef ptrdiff_t isz;
 
 #ifdef USE_RANDOM_UTIL
 
+#define _int_by_1_5(val) \
+  ((val) + (val) / 2)
+
 #include <sys/random.h>
 #include <errno.h>
 #include <assert.h>
@@ -754,7 +757,6 @@ typedef struct {
 } _dyn_arr_header;
 
 #define DYN_ARR_INIT_CAPACITY 8
-#define DYN_ARR_GROWTH_FACTOR 1.5
 
 #define _DYN_ARR_HEADER_SIZE                              \
   ((sizeof(_dyn_arr_header) + alignof(max_align_t) - 1) & \
@@ -810,9 +812,7 @@ static bool _arr_push_impl(
   _dyn_arr_header* h = _arr_hdr(*arr);
 
   if (h->count >= h->capacity) {
-    usz newcap =
-      h->capacity *
-      DYN_ARR_GROWTH_FACTOR;
+    usz newcap = _int_by_1_5(h->capacity);
 
     if (
       newcap <= h->capacity ||
@@ -860,22 +860,52 @@ static bool _arr_push_impl(
     &(typeof(*(arr))){(value)} \
   )
 
-static bool c_arr_to_dyn(
+static bool _c_arr_to_dyn_impl(
   void** arr,
   const void* c_arr,
+  usz size,
   usz count
 ) {
-  for (usz i = 0; i < count; i++) {
-    const void* elem_ptr =
-      (const char*)c_arr +
-      i * sizeof(*(arr));
-
-    if (!arr_push(arr, *(const typeof(*(arr))*)elem_ptr)) {
-      return false;
-    }
+  if (
+    count > SIZE_MAX / size
+  ) {
+    return false;
   }
+
+  usz capacity = count < DYN_ARR_INIT_CAPACITY ? DYN_ARR_INIT_CAPACITY : count;
+
+  usz bytes =
+    _DYN_ARR_HEADER_SIZE +
+    size * capacity;
+
+  _dyn_arr_header* h = malloc(bytes);
+
+  if (h == nil) {
+    return false;
+  }
+
+  h->count = count;
+  h->capacity = capacity;
+  memcpy(
+    (char*)h + _DYN_ARR_HEADER_SIZE,
+    c_arr,
+    size * count
+  );
+
+  *arr =
+    (char*)h +
+    _DYN_ARR_HEADER_SIZE;
+
   return true;
 }
+
+#define c_arr_to_dyn(arr, c_arr, count) \
+  _c_arr_to_dyn_impl(                   \
+    (void**)&(arr),                     \
+    (const void*)(c_arr),               \
+    sizeof(*(arr)),                     \
+    (usz)(count)                        \
+  )
 
 #endif // USE_DYN_ARR_UTIL
 
@@ -912,8 +942,7 @@ static bool str_builder_reserve(
     : 64;
 
   while (new_capacity < required) {
-    usz next =
-      (usz)(new_capacity * 1.5);
+    usz next = (usz)(_int_by_1_5(new_capacity));
 
     if (next <= new_capacity) {
       return false;
@@ -1438,7 +1467,7 @@ Functions/macros:
     Automatically grows the allocation if needed.
 
   bool c_arr_to_dyn(any* arr, any[] c_arr, usz count)
-    Convert a C array to a dynamic array by pushing each element.
+    Convert a C array to a dynamic array.
 
 Example:
   int[] my_array = {};
