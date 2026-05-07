@@ -1410,7 +1410,7 @@ Macro constants:
 
 Functions/macros:
 
-  void arr_len(any[] arr)
+  usz arr_len(any[] arr)
     Get the number of elements in the dynamic array.
 
   void arr_free(any[] arr)
@@ -1514,7 +1514,10 @@ Functions/macros:
       USE_STR_BUILDER_UTIL
       USE_STR_VIEW_UTIL
 
-  bool write_entire_file(char* path, colnst char*|const str_builder*|str_view data)
+  bool write_entire_file(
+    const char* path,
+    const char* | const str_builder* | str_view data
+  )
     Generic macro wrapper selecting the correct file writing implementation
     based on the type of data.
 */
