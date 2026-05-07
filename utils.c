@@ -860,6 +860,23 @@ static bool _arr_push_impl(
     &(typeof(*(arr))){(value)} \
   )
 
+static bool c_arr_to_dyn(
+  void** arr,
+  const void* c_arr,
+  usz count
+) {
+  for (usz i = 0; i < count; i++) {
+    const void* elem_ptr =
+      (const char*)c_arr +
+      i * sizeof(*(arr));
+
+    if (!arr_push(arr, *(const typeof(*(arr))*)elem_ptr)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 #endif // USE_DYN_ARR_UTIL
 
 
@@ -1410,15 +1427,18 @@ Macro constants:
 
 Functions/macros:
 
-  usz arr_len(any[] arr)
+  usz arr_len(any* arr)
     Get the number of elements in the dynamic array.
 
-  void arr_free(any[] arr)
+  void arr_free(any* arr)
     Free the dynamic array and set pointer to nil.
 
-  void arr_push(any[] arr, any value)
+  bool arr_push(any* arr, any value)
     Append a value to the dynamic array.
     Automatically grows the allocation if needed.
+
+  bool c_arr_to_dyn(any* arr, any[] c_arr, usz count)
+    Convert a C array to a dynamic array by pushing each element.
 
 Example:
   int[] my_array = {};
