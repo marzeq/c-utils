@@ -1,0 +1,20 @@
+If:
+  PathMatch: .*\.(h|c)$
+CompileFlags:
+  Add:
+    - -xc
+    - -std=c23
+
+---
+
+CompileFlags:
+  Add: 
+    - "-DUTILS_IMPLEMENTATION"
+    - "-DUSE_RANDOM_UTIL"
+    - "-DUSE_ALLOC_UTIL"
+    - "-DUSE_OPTION_UTIL"
+    - "-DUSE_DEFER_UTIL"
+    - "-DUSE_STR_VIEW_UTIL"
+    - "-DUSE_DYN_ARR_UTIL"
+    - "-DUSE_STR_BUILDER_UTIL"
+    - "-DUSE_FILE_UTIL"
