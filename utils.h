@@ -833,7 +833,7 @@ inline option option_from_ptr(void* ptr) {
 
 #ifdef USE_DEFER_UTIL
 
-#if (defined(__GNUC__) || defined(__clangd__)) && !defined(__STRICT_ANSI__)
+#if defined(__GNUC__) && !defined(__STRICT_ANSI__)
 
 #define _CONCAT_INTERNAL(x, y) x##y
 #define _CONCAT(x, y) _CONCAT_INTERNAL(x, y)
@@ -849,10 +849,17 @@ inline option option_from_ptr(void* ptr) {
 
 #define defer(code) _DEFER_INTERNAL(__COUNTER__, code)
 
+#elif defined(__clangd__)
+
+// we want clangd lsp to typecheck the code but not error because we use nexted funcs
+// obviously, this is not correct, because code would run immediately, but because it's
+// just the lsp and not the actual compiler, it's fine
+#define defer(code) code
+
 #else
 
 #define defer(...) \
-  _Static_assert(0, "defer is only supported with GCC")
+  _Static_assert(0, "defer is only supported with GCC that has nested functions support enabled")
 
 #endif
 
