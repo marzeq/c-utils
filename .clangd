@@ -4,6 +4,7 @@ CompileFlags:
   Add:
     - -xc
     - -std=c23
+    - "-D__clangd__"
     - "-DUTILS_IMPLEMENTATION"
     - "-DUSE_RANDOM_UTIL"
     - "-DUSE_ALLOC_UTIL"
