@@ -548,7 +548,7 @@ static inline option option_from_ptr(void* ptr) {
 #ifdef USE_DEFER_UTIL
 
 #define _CONCAT_INTERNAL(x, y) x##y
-#define _CONCAT(x, y) CONCAT_INTERNAL(x, y)
+#define _CONCAT(x, y) _CONCAT_INTERNAL(x, y)
 
 #define _DEFER_INTERNAL(id, code)                     \
   void _CONCAT(_defer_func_, id)(void* _unused) {     \
@@ -754,6 +754,11 @@ Inspired by tsoding.
 typedef struct {
   usz count;
   usz capacity;
+
+#ifdef USE_ALLOC_UTIL
+  alloc_tracker* tracker;
+#endif
+
 } _dyn_arr_header;
 
 #define DYN_ARR_INIT_CAPACITY 8
@@ -762,24 +767,60 @@ typedef struct {
   ((sizeof(_dyn_arr_header) + alignof(max_align_t) - 1) & \
    ~(alignof(max_align_t) - 1))
 
-#define _arr_hdr(arr) \
+#define dyn_arr_hdr(arr) \
   ((_dyn_arr_header*)((char*)(arr) - _DYN_ARR_HEADER_SIZE))
 
-#define arr_len(arr) \
-  ((arr) ? _arr_hdr(arr)->count : 0)
+#define dyn_arr_len(arr) \
+  ((arr) ? dyn_arr_hdr(arr)->count : 0)
 
-#define arr_free(arr)      \
-  do {                     \
-    if (arr) {             \
-      free(_arr_hdr(arr)); \
-      (arr) = nil;         \
-    }                      \
+#ifdef USE_ALLOC_UTIL
+
+static void _dyn_arr_free_impl(
+  void** arr
+) {
+  if (*arr == nil) {
+    return;
+  }
+
+  _dyn_arr_header* h =
+    dyn_arr_hdr(*arr);
+
+  if (h->tracker != nil) {
+    tfree(
+      h->tracker,
+      h
+    );
+  } else {
+    free(h);
+  }
+
+  *arr = nil;
+}
+
+#define dyn_arr_free(arr) \
+  _dyn_arr_free_impl((void**)&(arr))
+
+#else
+
+#define dyn_arr_free(arr)     \
+  do {                        \
+    if (arr) {                \
+      free(dyn_arr_hdr(arr)); \
+      (arr) = nil;            \
+    }                         \
   } while (0)
 
-static bool _arr_push_impl(
+#endif // USE_ALLOC_UTIL
+
+static bool _dyn_arr_push_impl(
   void** arr,
   usz elem_size,
   const void* value
+
+#ifdef USE_ALLOC_UTIL
+  , alloc_tracker* tracker
+#endif
+
 ) {
   if (*arr == nil) {
     usz cap = DYN_ARR_INIT_CAPACITY;
@@ -788,14 +829,31 @@ static bool _arr_push_impl(
       cap == 0 ||
       cap > SIZE_MAX / elem_size
     ) {
-      return 0;
+      return false;
     }
 
     usz bytes =
       _DYN_ARR_HEADER_SIZE +
       elem_size * cap;
 
-    _dyn_arr_header* h = malloc(bytes);
+    _dyn_arr_header* h;
+
+#ifdef USE_ALLOC_UTIL
+
+    if (tracker != nil) {
+      h = talloc(
+        tracker,
+        bytes
+      );
+    } else {
+      h = malloc(bytes);
+    }
+
+#else
+
+    h = malloc(bytes);
+
+#endif
 
     if (h == nil) {
       return false;
@@ -804,31 +862,60 @@ static bool _arr_push_impl(
     h->count = 0;
     h->capacity = cap;
 
+#ifdef USE_ALLOC_UTIL
+    h->tracker = tracker;
+#endif
+
     *arr =
       (char*)h +
       _DYN_ARR_HEADER_SIZE;
   }
 
-  _dyn_arr_header* h = _arr_hdr(*arr);
+  _dyn_arr_header* h =
+    dyn_arr_hdr(*arr);
 
   if (h->count >= h->capacity) {
-    usz newcap = _int_by_1_5(h->capacity);
+    usz newcap =
+      _int_by_1_5(h->capacity);
 
     if (
       newcap <= h->capacity ||
       newcap > SIZE_MAX / elem_size
     ) {
-      return 0;
+      return false;
     }
 
     usz bytes =
       _DYN_ARR_HEADER_SIZE +
       elem_size * newcap;
 
-    _dyn_arr_header* newh =
-      realloc(h, bytes);
+    _dyn_arr_header* newh;
 
-    if (!newh) {
+#ifdef USE_ALLOC_UTIL
+
+    if (h->tracker != nil) {
+      newh = trealloc(
+        h->tracker,
+        h,
+        bytes
+      );
+    } else {
+      newh = realloc(
+        h,
+        bytes
+      );
+    }
+
+#else
+
+    newh = realloc(
+      h,
+      bytes
+    );
+
+#endif
+
+    if (newh == nil) {
       return false;
     }
 
@@ -853,18 +940,49 @@ static bool _arr_push_impl(
   return true;
 }
 
-#define arr_push(arr, value)   \
-  _arr_push_impl(              \
-    (void**)&(arr),            \
-    sizeof(*(arr)),            \
-    &(typeof(*(arr))){(value)} \
+#ifdef USE_ALLOC_UTIL
+
+#define dyn_arr_push(arr, value) \
+  _dyn_arr_push_impl(            \
+    (void**)&(arr),              \
+    sizeof(*(arr)),              \
+    &(typeof(*(arr))){(value)},  \
+    nil                          \
   )
+
+#define dyn_arr_push_tracked(   \
+  arr,                          \
+  value,                        \
+  tracker                       \
+)                               \
+  _dyn_arr_push_impl(           \
+    (void**)&(arr),             \
+    sizeof(*(arr)),             \
+    &(typeof(*(arr))){(value)}, \
+    (tracker)                   \
+  )
+
+#else
+
+#define dyn_arr_push(arr, value) \
+  _dyn_arr_push_impl(            \
+    (void**)&(arr),              \
+    sizeof(*(arr)),              \
+    &(typeof(*(arr))){(value)}   \
+  )
+
+#endif // USE_ALLOC_UTIL
 
 static bool _c_arr_to_dyn_impl(
   void** arr,
   const void* c_arr,
   usz size,
   usz count
+
+#ifdef USE_ALLOC_UTIL
+  , alloc_tracker* tracker
+#endif
+
 ) {
   if (
     count > SIZE_MAX / size
@@ -872,13 +990,33 @@ static bool _c_arr_to_dyn_impl(
     return false;
   }
 
-  usz capacity = count < DYN_ARR_INIT_CAPACITY ? DYN_ARR_INIT_CAPACITY : count;
+  usz capacity =
+    count < DYN_ARR_INIT_CAPACITY
+    ? DYN_ARR_INIT_CAPACITY
+    : count;
 
   usz bytes =
     _DYN_ARR_HEADER_SIZE +
     size * capacity;
 
-  _dyn_arr_header* h = malloc(bytes);
+  _dyn_arr_header* h;
+
+#ifdef USE_ALLOC_UTIL
+
+  if (tracker != nil) {
+    h = talloc(
+      tracker,
+      bytes
+    );
+  } else {
+    h = malloc(bytes);
+  }
+
+#else
+
+  h = malloc(bytes);
+
+#endif
 
   if (h == nil) {
     return false;
@@ -886,6 +1024,11 @@ static bool _c_arr_to_dyn_impl(
 
   h->count = count;
   h->capacity = capacity;
+
+#ifdef USE_ALLOC_UTIL
+  h->tracker = tracker;
+#endif
+
   memcpy(
     (char*)h + _DYN_ARR_HEADER_SIZE,
     c_arr,
@@ -899,6 +1042,37 @@ static bool _c_arr_to_dyn_impl(
   return true;
 }
 
+#ifdef USE_ALLOC_UTIL
+
+#define c_arr_to_dyn(     \
+  arr,                    \
+  c_arr,                  \
+  count                   \
+)                         \
+  _c_arr_to_dyn_impl(     \
+    (void**)&(arr),       \
+    (const void*)(c_arr), \
+    sizeof(*(arr)),       \
+    (usz)(count),         \
+    nil                   \
+  )
+
+#define c_arr_to_dyn_tracked( \
+  arr,                        \
+  c_arr,                      \
+  count,                      \
+  tracker                     \
+)                             \
+  _c_arr_to_dyn_impl(         \
+    (void**)&(arr),           \
+    (const void*)(c_arr),     \
+    sizeof(*(arr)),           \
+    (usz)(count),             \
+    (tracker)                 \
+  )
+
+#else
+
 #define c_arr_to_dyn(arr, c_arr, count) \
   _c_arr_to_dyn_impl(                   \
     (void**)&(arr),                     \
@@ -906,6 +1080,8 @@ static bool _c_arr_to_dyn_impl(
     sizeof(*(arr)),                     \
     (usz)(count)                        \
   )
+
+#endif // USE_ALLOC_UTIL
 
 #endif // USE_DYN_ARR_UTIL
 
@@ -1449,86 +1625,89 @@ Description:
 
   Dynamic array utilities implemented using a hidden header stored before the array data.
 
+  When USE_ALLOC_UTIL is enabled, dynamic arrays may optionally use alloc_tracker
+  for allocation management.
+
 Macro constants:
 
   DYN_ARR_INIT_CAPACITY - Initial dynamic array capacity.
 
 Functions/macros:
 
-  usz arr_len(any* arr)
+  usz dyn_arr_len(any* arr)
     Get the number of elements in the dynamic array.
 
-  void arr_free(any* arr)
+  void dyn_arr_free(any* arr)
     Free the dynamic array and set pointer to nil.
 
-  bool arr_push(any* arr, any value)
-    Append a value to the dynamic array.
+    When the array uses alloc_tracker, the allocation is automatically removed
+    from the tracker using tfree().
+
+  bool dyn_arr_push(any* arr, any value)
+    Append a value to the dynamic array using standard malloc/realloc.
+
     Automatically grows the allocation if needed.
 
   bool c_arr_to_dyn(any* arr, any[] c_arr, usz count)
-    Convert a C array to a dynamic array.
+    Convert a C array to a dynamic array using standard malloc/realloc.
+
+When USE_ALLOC_UTIL is enabled:
+
+  bool dyn_arr_push_tracked(
+    any* arr,
+    any value,
+    alloc_tracker* tracker
+  )
+    Append a value to the dynamic array using tracked allocations.
+
+    The allocation will automatically be registered in the tracker and cleaned up
+    by alloc_tracker_free_all().
+
+  bool c_arr_to_dyn_tracked(
+    any* arr,
+    any[] c_arr,
+    usz count,
+    alloc_tracker* tracker
+  )
+    Convert a C array to a tracked dynamic array.
 
 Example:
-  int[] my_array = {};
-  arr_push(my_array, 42);
-  arr_push(my_array, 99);
 
-  for (usz i = 0; i < arr_len(my_array); i++) {
+  int* my_array = nil;
+
+  dyn_arr_push(my_array, 42);
+  dyn_arr_push(my_array, 99);
+
+  for (usz i = 0; i < dyn_arr_len(my_array); i++) {
     printf("%d\n", my_array[i]);
   }
 
-====================
-USE_STR_BUILDER_UTIL
-====================
+  dyn_arr_free(my_array);
 
-Description:
+Tracked example:
 
-  Dynamically growing string builder for efficient string construction.
+  alloc_tracker tracker;
+  alloc_tracker_init(&tracker);
 
-Structs:
+  int* values = nil;
 
-  str_builder {
-    char* data;   // String buffer
-    usz count;    // Current string length
-    usz capacity; // Allocated buffer size
-  }
+  dyn_arr_push_tracked(
+    values,
+    123,
+    &tracker
+  );
 
-Macros:
+  dyn_arr_push_tracked(
+    values,
+    456,
+    &tracker
+  );
 
-  sbpfmt
-    printf format string for printing str_builder contents.
+  alloc_tracker_free_all(&tracker);
 
-  sbpfarg(str_builder sb)
-    printf argument helper for str_builder.
-
-Functions/macros:
-
-  bool str_builder_reserve(str_builder* sb, usz additional)
-    Ensure the builder has enough capacity for additional bytes.
-
-  bool str_builder_append_n(str_builder* sb, const char* data, usz size)
-    Append raw bytes to the builder.
-
-  bool str_builder_append_cstr(str_builder* sb, const char* cstr)
-    Append a null-terminated C string.
-
-  bool str_builder_append_sv(str_builder* sb, str_view sv)
-    Append a string view.
-
-    Dependency:
-      USE_STR_VIEW_UTIL
-
-  str_view str_builder_view(const str_builder* sb)
-    Create a str_view referencing the builder contents.
-
-    Dependency:
-      USE_STR_VIEW_UTIL
-
-  void str_builder_clear(str_builder* sb)
-    Clear the builder contents while keeping allocated memory.
-
-  void str_builder_free(str_builder* sb)
-    Free the builder memory and reset the builder.
+Important:
+  
+  Do not use dyn_arr_push_tracked on untracked arrays or dyn_arr_push on tracked arrays, as this is undefined behaviour by the library design.
 
 =============
 USE_FILE_UTIL
