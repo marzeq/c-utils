@@ -1,4 +1,4 @@
 *
 !.gitignore
-!utils.c
+!utils.h
 !.clangd

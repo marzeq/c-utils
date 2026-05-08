@@ -1,14 +1,9 @@
 If:
-  PathMatch: .*\.(h|c)$
+  PathMatch: .*\.h$
 CompileFlags:
   Add:
     - -xc
     - -std=c23
-
----
-
-CompileFlags:
-  Add: 
     - "-DUTILS_IMPLEMENTATION"
     - "-DUSE_RANDOM_UTIL"
     - "-DUSE_ALLOC_UTIL"
@@ -18,3 +13,11 @@ CompileFlags:
     - "-DUSE_DYN_ARR_UTIL"
     - "-DUSE_STR_BUILDER_UTIL"
     - "-DUSE_FILE_UTIL"
+
+---
+
+If:
+  PathMatch: .*\.c$
+CompileFlags:
+  Add: 
+    - -std=c23
