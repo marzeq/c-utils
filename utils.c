@@ -58,10 +58,10 @@ typedef ptrdiff_t isz;
 
 #define nil NULL
 
-#ifdef USE_RANDOM_UTIL
-
 #define _int_by_1_5(val) \
   ((val) + (val) / 2)
+
+#ifdef USE_RANDOM_UTIL
 
 #include <sys/random.h>
 #include <errno.h>
