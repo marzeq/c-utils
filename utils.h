@@ -211,6 +211,7 @@ inline f32 random_f32_range(f32 min, f32 max) {
 #ifdef USE_ALLOC_UTIL
 
 #include <string.h>
+#include <assert.h>
 
 typedef struct allocator allocator;
 
