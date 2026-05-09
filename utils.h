@@ -787,53 +787,17 @@ allocator arena_allocator(
 
 
 
-#ifdef USE_OPTION_UTIL
-
-typedef struct {
-  enum {
-    OPTION_NONE,
-    OPTION_SOME
-  } tag;
-
-  void* some;
-} option;
-
-inline option option_none(void) {
-  option opt;
-  opt.tag = OPTION_NONE;
-  return opt;
-}
-
-inline option option_some(void* value) {
-  option opt;
-  opt.tag = OPTION_SOME;
-  opt.some = value;
-  return opt;
-}
-
-inline bool opt_is_none(option opt) {
-  return opt.tag == OPTION_NONE;
-}
-
-inline bool opt_is_some(option opt) {
-  return opt.tag == OPTION_SOME;
-}
-
-inline option option_from_ptr(void* ptr) {
-  if (ptr == nil) {
-    return option_none();
-  }
-
-  return option_some(ptr);
-}
-
-#endif // USE_OPTION_UTIL
-
-
-
 #ifdef USE_DEFER_UTIL
 
-#if defined(__GNUC__) && !defined(__STRICT_ANSI__)
+
+#if defined(__clangd__)
+
+// we want clangd lsp to typecheck the code but not error because we use nexted funcs
+// obviously, this is not correct, because code would run immediately, but because it's
+// just the lsp and not the actual compiler, it's fine
+#define defer(code) code
+
+#elif defined(__GNUC__)
 
 #define _CONCAT_INTERNAL(x, y) x##y
 #define _CONCAT(x, y) _CONCAT_INTERNAL(x, y)
@@ -843,18 +807,11 @@ inline option option_from_ptr(void* ptr) {
     (void)_unused;                                    \
     code                                              \
   }                                                   \
-                                                      \
+  \
   __attribute__((cleanup(_CONCAT(_defer_func_, id)))) \
   int _CONCAT(_defer_var_, id) = 0
 
 #define defer(code) _DEFER_INTERNAL(__COUNTER__, code)
-
-#elif defined(__clangd__)
-
-// we want clangd lsp to typecheck the code but not error because we use nexted funcs
-// obviously, this is not correct, because code would run immediately, but because it's
-// just the lsp and not the actual compiler, it's fine
-#define defer(code) code
 
 #else
 
