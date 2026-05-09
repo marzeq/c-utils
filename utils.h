@@ -225,7 +225,6 @@ struct allocator {
   void* (*realloc)(
     void* ctx,
     void* ptr,
-    usz old_size,
     usz new_size
   );
 
@@ -246,11 +245,9 @@ void* _libc_alloc(
 void* _libc_realloc(
   void* ctx,
   void* ptr,
-  usz old_size,
   usz new_size
 ) {
   (void)ctx;
-  (void)old_size;
 
   return realloc(
     ptr,
@@ -385,11 +382,8 @@ void* _tracked_alloc(
 void* _tracked_realloc(
   void* ctx,
   void* ptr,
-  usz old_size,
   usz new_size
 ) {
-  (void)old_size;
-
   alloc_tracker* tracker = ctx;
 
   if (ptr == nil) {
@@ -704,7 +698,7 @@ void arena_destroy(
   );
 }
 
-void* aalloc(
+void* arena_alloc(
   arena* a,
   usz size
 ) {
@@ -730,7 +724,7 @@ void* _arena_alloc(
   void* ctx,
   usz size
 ) {
-  return aalloc(
+  return arena_alloc(
     (arena*)ctx,
     size
   );
@@ -739,29 +733,9 @@ void* _arena_alloc(
 void* _arena_realloc(
   void* ctx,
   void* ptr,
-  usz old_size,
   usz new_size
 ) {
-  arena* a = ctx;
-
-  void* new_ptr =
-    aalloc(a, new_size);
-
-  if (new_ptr == nil) {
-    return nil;
-  }
-
-  if (ptr != nil) {
-    memcpy(
-      new_ptr,
-      ptr,
-      old_size < new_size
-        ? old_size
-        : new_size
-    );
-  }
-
-  return new_ptr;
+  assert(0, "arena does not support realloc. use libc allocator or tracked allocator if you need realloc support");
 }
 
 void _arena_free(
@@ -1052,8 +1026,6 @@ void* _dyn_arr_resize(
   return arr->alloc.realloc(
     arr->alloc.ctx,
     arr->data,
-    arr->capacity *
-      elem_size,
     new_capacity *
       elem_size
   );
@@ -1245,7 +1217,6 @@ bool str_builder_reserve(
     sb->alloc.realloc(
       sb->alloc.ctx,
       sb->data,
-      sb->capacity,
       new_capacity
     );
 
