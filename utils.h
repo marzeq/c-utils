@@ -736,6 +736,9 @@ void* _arena_realloc(
   void* ptr,
   usz new_size
 ) {
+  (void)ctx;
+  (void)ptr;
+  (void)new_size;
   assert(0 && "arena does not support realloc. use libc allocator or tracked allocator if you need realloc support");
 }
 
