@@ -1,5 +1,16 @@
 /*
-utils.c - Random C utilities to make it more bearable to work with. Made for my usecases.
+# utils.c - Collection of C utilities for various tasks.
+
+Think of this as a better standard library with improvements coming from modern ideas and practices.
+
+### We include things like:
+
+- Custom memory allocators 
+- String views and builders
+- Defer functionality
+- Dynamic arrays
+- File utilities
+- Flag/argument parsing
 
 Some of these come from other people licensed in the public domain, some I wrote myself.
 
