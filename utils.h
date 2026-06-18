@@ -1,23 +1,35 @@
 /*
-utils.h - One file for 90% of what you actually do in C.
+utils.h - One file for the things you end up writing in every C project anyway.
 
-We include things like:
+Provides:
 
 - Custom memory allocators 
 - String views and builders
 - Defer functionality
 - Dynamic arrays
 - File utilities
-- Flag/argument parsing
+- Command-line flag parsing
 
-Heavily inspired by practices from modern system programming languages and patterns used
-by developers writing modern C code.
+Inspired by modern systems programming languages and
+common patterns used in contemporary C code.
 
-Some I wrote myself, some of these come from other people licensed in the public domain.
+Some parts were written from scratch,
+while others are adapted from public-domain code by various authors.
 
-Licensed under either of these:
+Usage:
+  #define USE_(FEATURE1)_UTILS
+  #define USE_(FEATURE2)_UTILS
+  #include "utils.h"
+  
+Or:
+  #define USE_ALL_UTILS
+  #include "utils.h"
 
-A) Public Domain
+See the definition of USE_ALL_UTILS for the complete feature list.
+
+Dual-licensed under either of these:
+
+A) The Unlicense (Public Domain)
 
 This is free and unencumbered software released into the public domain.
 
@@ -1385,8 +1397,8 @@ static void* _add_flag(flags* f, const char* name, const char* description, flag
   if (f->flags_count >= FLAGS_MAX_FLAGS) {
     fprintf(
       stderr,
-      "Maximum number of arguments exceeded (%d). "
-      "#define FLAGS_MAX_FLAGS before including flags.h to increase this limit.\n",
+      "Maximum number of flags exceeded (%d). "
+      "#define FLAGS_MAX_FLAGS before including utils.h to increase this limit.\n",
       FLAGS_MAX_FLAGS
     );
     f->failed_adding = true;
@@ -1394,34 +1406,34 @@ static void* _add_flag(flags* f, const char* name, const char* description, flag
   }
 
   if (f->_parsed) {
-    fprintf(stderr, "Cannot add arguments after parsing\n");
+    fprintf(stderr, "cannot add flags after parsing\n");
     f->failed_adding = true;
     return nil;
   }
 
   if (name == nil || description == nullptr) {
-    fprintf(stderr, "argument name and/or description cannot be null\n");
+    fprintf(stderr, "flag name and/or description cannot be null\n");
     f->failed_adding = true;
     return nil;
   }
 
   for (const char* p = name; *p != '\0'; p++) {
     if (*p == '=') {
-      fprintf(stderr, "argument name cannot contain '=': %s\n", name);
+      fprintf(stderr, "flag name cannot contain '=': %s\n", name);
       f->failed_adding = true;
       return nil;
     }
   }
 
   if (strcmp(name, "h") == 0) {
-    fprintf(stderr, "'-h' is reserved for help\n");
+    fprintf(stderr, "-h is reserved for help\n");
     f->failed_adding = true;
     return nil;
   }
 
   for (size_t i = 0; i < f->flags_count; i++) {
     if (strcmp(f->flags[i].name, name) == 0) {
-      fprintf(stderr, "Duplicate argument name: %s\n", name);
+      fprintf(stderr, "duplicate flag name: %s\n", name);
       f->failed_adding = true;
       return nil;
     }
@@ -1552,14 +1564,14 @@ static bool _parse_int(str_view sv, int *out) {
 
 static bool _set_flag_value(flags* f, flag* flag, const str_view sv) {
   if (flag->is_set) {
-    fprintf(stderr, "argument '%s' specified multiple times\n", flag->name);
+    fprintf(stderr, "flag -%s specified multiple times\n", flag->name);
     return false;
   }
 
   switch (flag->type) {
     case BOOL: {
       if (sv.count > 0) {
-        fprintf(stderr, "Boolean argument '%s' does not take a value\n", flag->name);
+        fprintf(stderr, "boolean flag -%s does not take a value\n", flag->name);
         return false;
       }
 
@@ -1573,16 +1585,12 @@ static bool _set_flag_value(flags* f, flag* flag, const str_view sv) {
     case NUMBER: {
       int value;
       if (!_parse_int(sv, &value)) {
-        fprintf(stderr, "Invalid integer value for argument '%s': '" sfmt "'\n", flag->name, sfmtarg(sv));
+        fprintf(stderr, "invalid integer value for flag -%s: '" sfmt "'\n", flag->name, sfmtarg(sv));
         return false;
       }
 
       flag->value.number_value = (int)value;
       break;
-    }
-    default: {
-      fprintf(stderr, "Unknown argument type for '%s'\n", flag->name);
-      return false;
     }
   }
 
@@ -1650,7 +1658,7 @@ bool flags_parse(flags* f, int flagc, char** flagv) {
   } else {
     int expected = atoi(f->positional_args_req);
     if (expected < 0) {
-      fprintf(stderr, "Invalid positional_args_req: %s\n", f->positional_args_req);
+      fprintf(stderr, "invalid positional_args_req: %s\n", f->positional_args_req);
       return false;
     }
   }
@@ -1684,7 +1692,7 @@ bool flags_parse(flags* f, int flagc, char** flagv) {
 
         if (flag->type != BOOL) {
           if (i + 1 >= flagc) {
-            fprintf(stderr, "argument '" sfmt "' requires a value\n", sfmtarg(got));
+            fprintf(stderr, "flag -" sfmt " requires a value\n", sfmtarg(got));
             return false;
           }
 
@@ -1727,10 +1735,10 @@ bool flags_parse(flags* f, int flagc, char** flagv) {
         str_view flag_name = got;
         flag_name.count = (size_t)equal_sign;
 
-        fprintf(stderr, "Unknown argument: " sfmt "\n", sfmtarg(flag_name));
+        fprintf(stderr, "unknown flag -" sfmt "\n", sfmtarg(flag_name));
         return false;
       } else {
-        fprintf(stderr, "Unknown argument: " sfmt "\n", sfmtarg(got));
+        fprintf(stderr, "unknown flag -" sfmt "\n", sfmtarg(got));
         return false;
       }
     }
@@ -1739,17 +1747,17 @@ bool flags_parse(flags* f, int flagc, char** flagv) {
   if (!f->positional_args_req) {
     // unspecified, assume 0
     if (f->positional_args.count > 0) {
-      fprintf(stderr, "Expected no positional arguments, got %zu\n", f->positional_args.count);
+      fprintf(stderr, "expected no positional arguments, got %zu\n", f->positional_args.count);
       return false;
     }
   } else if (strcmp(f->positional_args_req, "+") == 0) {
     if (f->positional_args.count == 0) {
-      fprintf(stderr, "Expected at least one positional argument\n");
+      fprintf(stderr, "expected at least one positional argument\n");
       return false;
     }
   } else if (strcmp(f->positional_args_req, "?") == 0) {
     if (f->positional_args.count > 1) {
-      fprintf(stderr, "Expected at most one positional argument\n");
+      fprintf(stderr, "expected at most one positional argument\n");
       return false;
     }
   } else if (strcmp(f->positional_args_req, "*") == 0) {
@@ -1758,7 +1766,7 @@ bool flags_parse(flags* f, int flagc, char** flagv) {
     // expected to be a number
     int expected = atoi(f->positional_args_req);
     if (f->positional_args.count != (size_t)expected) {
-      fprintf(stderr, "Expected %d positional arguments, got %zu\n", expected, f->positional_args.count);
+      fprintf(stderr, "expected %d positional arguments, got %zu\n", expected, f->positional_args.count);
       return false;
     }
   }
