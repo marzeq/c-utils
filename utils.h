@@ -92,15 +92,6 @@ typedef ptrdiff_t isz;
 #include <string.h>
 #include <assert.h>
 
-// <@
-// @name allocator
-// @kind type
-// @desc A struct that represents a memory allocator. It contains function pointers for allocating,
-// reallocating and freeing memory, as well as a context pointer that can be used to store any state the allocator needs.
-// @field ctx A pointer to any state the allocator needs. This is passed to the alloc, realloc and free functions.
-// @field alloc A function pointer to a function that allocates memory.
-// @field realloc A function pointer to a function that reallocates memory.
-// @field free A function pointer to a function that frees memory.
 typedef struct {
   void* ctx;
 
@@ -109,7 +100,6 @@ typedef struct {
   void (*free)(void* ctx, void* ptr);
   void (*reset)(void* ctx);
 } allocator;
-// @>
 
 static void* _libc_alloc(void* ctx, usz size) {
   (void)ctx;
@@ -132,12 +122,6 @@ static void _libc_reset(void* ctx) {
   assert(0 && "libc_allocator does not support reset");
 }
 
-// <@
-// @name tracking_allocator
-// @kind type
-// @desc An allocator that tracks all allocations made through it.
-// @warning This allocator is not thread-safe and should only be used in a single-threaded context.
-// @>
 typedef struct {
   void** allocations;
   usz count;
@@ -159,15 +143,7 @@ static bool _tracking_allocator_resize(tracking_allocator* tracker) {
   return true;
 }
 
-// <@
-// @name tracking_allocator_track_ptr
-// @kind function
-// @desc Tracks a pointer in the tracking_allocator. This should be called whenever memory is allocated using the tracked allocator.
-// @return true if the pointer was successfully tracked, false if there was an error (e.g. out of memory).
-// @param tracker The tracking_allocator to track the pointer in.
-// @param ptr The pointer to track.
 bool tracking_allocator_track_ptr(tracking_allocator* tracker, void* ptr) {
-// @>
   if (ptr == nil) {
     return false;
   }
@@ -194,14 +170,7 @@ bool tracking_allocator_track_ptr(tracking_allocator* tracker, void* ptr) {
   return true;
 }
 
-// <@
-// @name tracking_allocator_untrack_ptr
-// @kind function
-// @desc Untracks a pointer in the tracking_allocator.
-// @param tracker The tracking_allocator to untrack the pointer from.
-// @param ptr The pointer to untrack.
 void tracking_allocator_untrack_ptr(tracking_allocator* tracker, void* ptr) {
-// @>
   for (usz i = 0; i < tracker->count; i++) {
     if (tracker->allocations[i] == ptr) {
       tracker->allocations[i] = tracker->allocations[tracker->count - 1];
@@ -301,12 +270,6 @@ typedef struct {
   usz size;
 } arena_header;
 
-// <@
-// @name arena
-// @kind type
-// @desc A memory arena that allocates memory in blocks and allows for efficient allocation and deallocation of memory.
-// @kind struct
-// @>
 typedef struct {
   arena_block* first;
   arena_block* current;
@@ -575,14 +538,6 @@ static allocator _make_allocator_arena(arena* arena) {
 
 #define GET_MACRO(_0, _1, NAME, ...) NAME
 
-// <@
-// @name make_allocator
-// @kind macro
-// @desc Creates an allocator. If called with no arguments, it creates a simple allocator that uses malloc and free.
-// If called with a tracking_allocator pointer, it creates a tracking allocator.
-// If called with an arena pointer, it creates an arena allocator.
-// @param ... Optional argument: a pointer to a tracking_allocator or an arena.
-// @>
 #define make_allocator(...) \
     GET_MACRO(_ __VA_OPT__(,) __VA_ARGS__, \
               _MAKE_ALLOCATOR_1, \
@@ -595,29 +550,14 @@ typedef struct {
   usz used;
 } arena_save_point;
 
-// <@
-// @name arena_save
-// @kind function
-// @desc Saves the current allocation position of an arena.
-// @param a The arena to save.
-// @return A save point that can later be passed to arena_restore.
 arena_save_point arena_save(arena* a) {
-// @>
   return (arena_save_point){
     .block = a->current,
     .used = a->current ? a->current->used : 0,
   };
 }
 
-// <@
-// @name arena_restore
-// @kind function
-// @desc Restores an arena to a previously saved allocation position.
-// All allocations made after the save point are discarded.
-// @param a The arena to restore.
-// @param save The save point to restore to.
 void arena_restore(arena* a, arena_save_point save) {
-// @>
   arena_block *block = a->current;
 
   while (block && block != save.block) {
@@ -633,13 +573,6 @@ void arena_restore(arena* a, arena_save_point save) {
   }
 }
 
-// <@
-// @name scratch
-// @kind type
-// @desc A temporary allocation context backed by an arena.
-// Memory allocated through its allocator is released when scratch_end is called.
-// @kind struct
-// @>
 typedef struct {
   arena* backing;
   arena_save_point save;
@@ -658,15 +591,7 @@ static bool _scratch_has_conflict(arena* a, arena** conflicts, usz count) {
   return false;
 }
 
-// <@
-// @name scratch_begin_with
-// @kind function
-// @desc Acquires a scratch allocation context while avoiding a set of conflicting arenas.
-// @param conflict An arena that should not be used for the scratch context.
-// @param count The number of arenas in the conflicts array.
-// @return A scratch context backed by a non-conflicting arena. The returned context must be released with scratch_end.
 scratch scratch_begin_with(const scratch *conflict) {
-// @>
   arena *a = nil;
 
   for (usz i = 0; i < 2; ++i) {
@@ -685,23 +610,11 @@ scratch scratch_begin_with(const scratch *conflict) {
   };
 }
 
-// <@
-// @name scratch_begin
-// @kind function
-// @desc Acquires a scratch allocation context using an available scratch arena.
-// @return A scratch context that can be used for temporary allocations. The returned context must be released with scratch_end.
 scratch scratch_begin(void) {
-// @>
   return scratch_begin_with(nil);
 }
 
-// <@
-// @name scratch_end
-// @kind function
-// @desc Releases a scratch allocation context and discards all allocations made through it.
-// @param s The scratch context to release.
 void scratch_end(scratch s) {
-// @>
   arena_restore(s.backing, s.save);
 }
 
@@ -733,13 +646,6 @@ void scratch_end(scratch s) {
   __attribute__((cleanup(_CONCAT(_defer_func_, id)))) \
   int _CONCAT(_defer_var_, id) = 0
 
-// <@
-// @name defer
-// @kind macro
-// @desc Schedules the given code to be executed when the current scope is exited.
-// This is useful for ensuring that resources are properly released, even if an error occurs or a return statement is hit.
-// @param code Statement or block of code to execute when the current scope is exited.
-// @>
 #define defer(code) _DEFER_INTERNAL(__COUNTER__, code)
 
 #else
@@ -763,18 +669,10 @@ Taken from tsoding's nob.h
 #include <string.h>
 #include <ctype.h>
 
-// <@
-// @name str_view
-// @kind type
-// @desc A non-owning view into a string.
-// The string is not guaranteed to be null-terminated.
-// @field count The length of the string view in bytes.
-// @field data A pointer to the string data.
 typedef struct {
   size_t count;
   const char *data;
 } str_view;
-// @>
 
 // Forward declarations so that the functions can call each other
 str_view str_view_chop_while(str_view *sv, int (*p)(int x));
@@ -796,16 +694,7 @@ str_view str_view_from_cstr(const char *cstr);
 str_view str_view_from_parts(const char *data, size_t count);
 int str_view_find(str_view sv, char c);
 
-// <@
-// @name str_view_chop_while
-// @kind function
-// @desc Removes and returns the longest prefix of the string view for which the predicate returns true.
-// The original string view is modified to exclude the returned prefix.
-// @param sv The string view to chop from.
-// @param p A predicate function that returns non-zero for matching characters.
-// @return The chopped prefix.
 str_view str_view_chop_while(str_view *sv, int (*p)(int x)) {
-// @>
   size_t i = 0;
   while (i < sv->count && p(sv->data[i])) {
     i += 1;
@@ -827,7 +716,6 @@ str_view str_view_chop_while(str_view *sv, int (*p)(int x)) {
 // @param delim The delimiter character.
 // @return The chopped substring.
 str_view str_view_chop_by_delim(str_view *sv, char delim) {
-// @>
   size_t i = 0;
   while (i < sv->count && sv->data[i] != delim) {
     i += 1;
@@ -846,15 +734,7 @@ str_view str_view_chop_by_delim(str_view *sv, char delim) {
   return result;
 }
 
-// <@
-// @name str_view_chop_prefix
-// @kind function
-// @desc Removes a prefix from the string view if it matches.
-// @param sv The string view to modify.
-// @param prefix The prefix to remove.
-// @return true if the prefix matched and was removed, false otherwise.
 bool str_view_chop_prefix(str_view *sv, str_view prefix) {
-// @>
   if (str_view_starts_with(*sv, prefix)) {
     str_view_chop_left(sv, prefix.count);
     return true;
@@ -862,15 +742,7 @@ bool str_view_chop_prefix(str_view *sv, str_view prefix) {
   return false;
 }
 
-// <@
-// @name str_view_chop_suffix
-// @kind function
-// @desc Removes a suffix from the string view if it matches.
-// @param sv The string view to modify.
-// @param suffix The suffix to remove.
-// @return true if the suffix matched and was removed, false otherwise.
 bool str_view_chop_suffix(str_view *sv, str_view suffix) {
-// @>
   if (str_view_ends_with(*sv, suffix)) {
     str_view_chop_right(sv, suffix.count);
     return true;
@@ -878,15 +750,7 @@ bool str_view_chop_suffix(str_view *sv, str_view suffix) {
   return false;
 }
 
-// <@
-// @name str_view_chop_left
-// @kind function
-// @desc Removes and returns up to n bytes from the start of the string view.
-// @param sv The string view to chop from.
-// @param n The maximum number of bytes to remove.
-// @return The removed prefix.
 str_view str_view_chop_left(str_view *sv, size_t n) {
-// @>
   if (n > sv->count) {
     n = sv->count;
   }
@@ -899,15 +763,7 @@ str_view str_view_chop_left(str_view *sv, size_t n) {
   return result;
 }
 
-// <@
-// @name str_view_chop_right
-// @kind function
-// @desc Removes and returns up to n bytes from the end of the string view.
-// @param sv The string view to chop from.
-// @param n The maximum number of bytes to remove.
-// @return The removed suffix.
 str_view str_view_chop_right(str_view *sv, size_t n) {
-// @>
   if (n > sv->count) {
     n = sv->count;
   }
@@ -919,29 +775,14 @@ str_view str_view_chop_right(str_view *sv, size_t n) {
   return result;
 }
 
-// <@
-// @name str_view_from_parts
-// @kind function
-// @desc Creates a str_view from a pointer and a length.
-// @param data The string data pointer.
-// @param count The number of bytes in the string view.
-// @return A new str_view.
 str_view str_view_from_parts(const char *data, size_t count) {
-// @>
   str_view sv;
   sv.count = count;
   sv.data = data;
   return sv;
 }
 
-// <@
-// @name str_view_trim_left
-// @kind function
-// @desc Returns a copy of the string view with leading whitespace removed.
-// @param sv The string view to trim.
-// @return The trimmed string view.
 str_view str_view_trim_left(str_view sv) {
-// @>
   size_t i = 0;
   while (i < sv.count && isspace(sv.data[i])) {
     i += 1;
@@ -950,14 +791,7 @@ str_view str_view_trim_left(str_view sv) {
   return str_view_from_parts(sv.data + i, sv.count - i);
 }
 
-// <@
-// @name str_view_trim_right
-// @kind function
-// @desc Returns a copy of the string view with trailing whitespace removed.
-// @param sv The string view to trim.
-// @return The trimmed string view.
 str_view str_view_trim_right(str_view sv) {
-// @>
   size_t i = 0;
   while (i < sv.count && isspace(sv.data[sv.count - 1 - i])) {
     i += 1;
@@ -966,38 +800,16 @@ str_view str_view_trim_right(str_view sv) {
   return str_view_from_parts(sv.data, sv.count - i);
 }
 
-// <@
-// @name str_view_trim
-// @kind function
-// @desc Returns a copy of the string view with leading and trailing whitespace removed.
-// @param sv The string view to trim.
-// @return The trimmed string view.
 str_view str_view_trim(str_view sv) {
-// @>
   return str_view_trim_right(str_view_trim_left(sv));
 }
 
-// <@
-// @name str_view_from_cstr
-// @kind function
-// @desc Creates a str_view from a null-terminated C string.
-// @param cstr The null-terminated string.
-// @return A str_view referencing the string.
 str_view str_view_from_cstr(const char *cstr) {
-// @>
   return str_view_from_parts(cstr, strlen(cstr));
 }
 
 
-// <@
-// @name str_view_eq
-// @kind function
-// @desc Compares two string views for equality.
-// @param a The first string view.
-// @param b The second string view.
-// @return true if both string views contain the same bytes, false otherwise.
 bool str_view_eq(str_view a, str_view b) {
-// @>
   if (a.count != b.count) {
     return false;
   } else {
@@ -1005,39 +817,15 @@ bool str_view_eq(str_view a, str_view b) {
   }
 }
 
-// <@
-// @name str_view_eq_cstr
-// @kind function
-// @desc Compares a string view with a null-terminated C string for equality.
-// @param sv The string view.
-// @param cstr The null-terminated string.
-// @return true if the string view and C string contain the same bytes, false otherwise.
 bool str_view_eq_cstr(str_view sv, const char *cstr) {
-  // @>
   return str_view_eq(sv, str_view_from_cstr(cstr));
 }
 
-// <@
-// @name str_view_ends_with_cstr
-// @kind function
-// @desc Checks whether a string view ends with a null-terminated C string.
-// @param sv The string view to check.
-// @param cstr The suffix string.
-// @return true if sv ends with cstr, false otherwise.
 bool str_view_ends_with_cstr(str_view sv, const char *cstr) {
-// @>
   return str_view_ends_with(sv, str_view_from_cstr(cstr));
 }
 
-// <@
-// @name str_view_ends_with
-// @kind function
-// @desc Checks whether a string view ends with another string view.
-// @param sv The string view to check.
-// @param suffix The suffix to test.
-// @return true if sv ends with suffix, false otherwise.
 bool str_view_ends_with(str_view sv, str_view suffix) {
-// @>
   if (sv.count >= suffix.count) {
     str_view sv_tail = {
       .count = suffix.count,
@@ -1048,15 +836,7 @@ bool str_view_ends_with(str_view sv, str_view suffix) {
   return false;
 }
 
-// <@
-// @name str_view_starts_with
-// @kind function
-// @desc Checks whether a string view starts with another string view.
-// @param sv The string view to check.
-// @param prefix The prefix to test.
-// @return true if sv starts with prefix, false otherwise.
 bool str_view_starts_with(str_view sv, str_view expected_prefix) {
-// @>
   if (expected_prefix.count <= sv.count) {
     str_view actual_prefix = str_view_from_parts(sv.data, expected_prefix.count);
     return str_view_eq(expected_prefix, actual_prefix);
@@ -1065,27 +845,11 @@ bool str_view_starts_with(str_view sv, str_view expected_prefix) {
   return false;
 }
 
-// <@
-// @name str_view_starts_with_cstr
-// @kind function
-// @desc Checks whether a string view starts with a null-terminated C string.
-// @param sv The string view to check.
-// @param cstr The prefix string.
-// @return true if sv starts with cstr, false otherwise.
 bool str_view_starts_with_cstr(str_view sv, const char *cstr) {
-// @>
   return str_view_starts_with(sv, str_view_from_cstr(cstr));
 }
 
-// <@
-// @name str_view_find
-// @kind function
-// @desc Finds the first occurrence of a character in a string view.
-// @param sv The string view to search.
-// @param c The character to find.
-// @return The index of the first occurrence of c in sv, or -1 if not found.
 int str_view_find(str_view sv, char c) {
-// @>
   for (size_t i = 0; i < sv.count; ++i) {
     if (sv.data[i] == c) {
       return (int)i;
@@ -1094,14 +858,6 @@ int str_view_find(str_view sv, char c) {
   return -1;
 }
 
-// <@
-// @name str_builder
-// @kind type
-// @desc A dynamically growing string builder for constructing strings efficiently.
-// The buffer is always null-terminated.
-// @field data Pointer to the character buffer.
-// @field count The number of bytes currently used, excluding the null terminator.
-// @field capacity The total capacity of the buffer in bytes.
 typedef struct {
   char* data;
   usz count;
@@ -1111,24 +867,9 @@ typedef struct {
   allocator alloc;
 #endif
 } str_builder;
-// @>
 
-// <@
-// @name sfmt
-// @kind macro
-// @desc printf format string helper for printing str_view or str_builder contents.
-// @example printf(svpfmt, svpfarg(sv));
-// @see_also sfmtarg
-// @>
 #define sfmt "%.*s"
 
-// <@
-// @name sfmtarg
-// @kind macro
-// @desc Expands a str_view or str_builder into printf arguments compatible with sfmt.
-// @param sv The str_view or str_builder to expand.
-// @see_also sfmt
-// @>
 #define sfmtarg(sv) (int)(sv).count, (sv).data
 
 #ifdef USE_ALLOC_UTILS
@@ -1163,15 +904,7 @@ static void _str_builder_ensure_allocator(str_builder* sb) {
 
 #endif
 
-// <@
-// @name str_builder_reserve
-// @kind function
-// @desc Ensures that the string builder has enough capacity for additional bytes.
-// @param sb The string builder.
-// @param additional The number of additional bytes required.
-// @return true on success, false on allocation failure.
 bool str_builder_reserve(str_builder* sb, usz additional) {
-// @>
   usz required = sb->count + additional + 1;
 
   if (required <= sb->capacity) {
@@ -1204,16 +937,7 @@ bool str_builder_reserve(str_builder* sb, usz additional) {
   return true;
 }
 
-// <@
-// @name str_builder_append_bytes
-// @kind function
-// @desc Appends raw bytes to the string builder.
-// @param sb The string builder.
-// @param data Pointer to the bytes to append.
-// @param size Number of bytes to append.
-// @return true on success, false on allocation failure.
 bool str_builder_append_bytes(str_builder* sb, const void* data, usz size) {
-// @>
   if (!str_builder_reserve(sb, size)) {
     return false;
   }
@@ -1227,27 +951,11 @@ bool str_builder_append_bytes(str_builder* sb, const void* data, usz size) {
   return true;
 }
 
-// <@
-// @name str_builder_append_cstr
-// @kind function
-// @desc Appends a null-terminated C string to the string builder.
-// @param sb The string builder.
-// @param cstr The string to append.
-// @return true on success, false on allocation failure.
 bool str_builder_append_cstr(str_builder* sb, const char* cstr) {
-// @>
   return str_builder_append_bytes(sb, cstr, strlen(cstr));
 }
 
-// <@
-// @name str_builder_append_sb
-// @kind function
-// @desc Appends the contents of another string builder.
-// @param sb The destination string builder.
-// @param other The source string builder.
-// @return true on success, false on allocation failure.
 bool str_builder_append_sb(str_builder* sb, const str_builder* other) {
-// @>
   return str_builder_append_bytes(sb, other->data, other->count);
 }
 
@@ -1255,37 +963,14 @@ bool _str_builder_append_sb_value(str_builder* sb, str_builder other) {
   return str_builder_append_sb(sb, &other);
 }
 
-// <@
-// @name str_builder_append_sv
-// @kind function
-// @desc Appends a string view to the string builder.
-// @param sb The destination string builder.
-// @param sv The string view to append.
-// @return true on success, false on allocation failure.
 bool str_builder_append_sv(str_builder* sb, str_view sv) {
-// @>
   return str_builder_append_bytes(sb, sv.data, sv.count);
 }
 
-// <@
-// @name str_builder_view
-// @kind function
-// @desc Returns a string view referencing the contents of the string builder.
-// @param sb The string builder.
-// @return A str_view referencing the builder contents.
 str_view str_builder_view(const str_builder* sb) {
-// @>
   return str_view_from_parts(sb->data ? sb->data : "", sb->count);
 }
 
-// <@
-// @name str_builder_append
-// @kind macro
-// @desc Generic append macro for appending C-strings, string builders and string views.
-// Supported types depend on enabled utilities.
-// @param sb The destination string builder.
-// @param data The value to append.
-// @>
 #define str_builder_append(sb, data)           \
   _Generic((data),                             \
     char*: str_builder_append_cstr,            \
@@ -1296,13 +981,7 @@ str_view str_builder_view(const str_builder* sb) {
     str_view: str_builder_append_sv            \
   )(sb, data)
 
-// <@
-// @name str_builder_clear
-// @kind function
-// @desc Clears the contents of the string builder without freeing its memory.
-// @param sb The string builder to clear.
 void str_builder_clear(str_builder* sb) {
-// @>
   sb->count = 0;
 
   if (sb->data != nil) {
@@ -1310,13 +989,7 @@ void str_builder_clear(str_builder* sb) {
   }
 }
 
-// <@
-// @name str_builder_free
-// @kind function
-// @desc Frees the memory owned by the string builder and resets it to an empty state.
-// @param sb The string builder to free.
 void str_builder_free(str_builder* sb) {
-// @>
   _str_builder_ensure_allocator(sb);
 
   _str_builder_free(sb, sb->data);
@@ -1350,16 +1023,6 @@ typedef struct {
 #endif
 } _da_base;
 
-// <@
-// @name da
-// @kind macro
-// @desc Declares a dynamic array type for a given element type.
-// @param T The element type.
-// @example
-// typedef da(int) int_array;
-// int_array arr = {0}; // Initialize an empty dynamic array of integers.
-// da_append(&arr, 42); // Append an integer to the array.
-// @>
 #define da(T) struct { \
   T* data;             \
   usz count;           \
@@ -1436,14 +1099,6 @@ void _da_free(_da_base* arr) {
   arr->capacity = 0;
 }
 
-// <@
-// @name da_append
-// @kind macro
-// @desc Appends a value to the dynamic array, resizing if necessary.
-// @param arr Pointer to the dynamic array.
-// @param value The value to append.
-// @return true on success, false on allocation failure.
-// @>
 #define da_append(arr, value)            \
   ({                                     \
     typeof(*(arr)->data) _tmp = (value); \
@@ -1454,31 +1109,10 @@ void _da_free(_da_base* arr) {
     );                                   \
   })
 
-// <@
-// @name da_at
-// @kind macro
-// @desc Returns the element at the given index.
-// No bounds checking is performed.
-// @param arr Pointer to the dynamic array.
-// @param index The element index.
-// @>
 #define da_at(arr, index) ((arr)->data[(index)])
 
-// <@
-// @name da_last
-// @kind macro
-// @desc Returns the last element of the dynamic array.
-// The array must not be empty.
-// @param arr Pointer to the dynamic array.
-// @>
 #define da_last(arr) ((arr)->data[(arr)->count - 1])
 
-// <@
-// @name da_free
-// @kind macro
-// @desc Frees the memory owned by the dynamic array and resets it to an empty state.
-// @param arr Pointer to the dynamic array.
-// @>
 #define da_free(arr) _da_free((_da_base*)(arr))
 
 #define _DA_FOREACH_1(arr) \
@@ -1492,20 +1126,6 @@ void _da_free(_da_base* arr) {
 
 #define _DA_FOREACH_GET(_1, _2, NAME, ...) NAME
 
-// <@
-// @name da_foreach
-// @kind macro
-// @desc Iterates over all elements in a dynamic array.
-// @param arr Pointer to the dynamic array.
-// @param it Optional variable name for the current element. Defaults to 'it' if not provided.
-// @example
-// da_foreach(&arr) {
-//   printf("%d\n", it);
-// }
-// da_foreach(&arr, x) {
-//   printf("%d\n", x);
-// }
-// @>
 #define da_foreach(...) \
   _DA_FOREACH_GET(__VA_ARGS__, _DA_FOREACH_2, _DA_FOREACH_1)(__VA_ARGS__)
 
@@ -1520,22 +1140,6 @@ void _da_free(_da_base* arr) {
 
 #define _DA_FOREACH_I_GET(_1, _2, _3, NAME, ...) NAME
 
-// <@
-// @name da_foreach_i
-// @kind macro
-// @desc Iterates over all elements in the dynamic array, exposing the index
-// and a copy of the element.
-// @param arr Pointer to the dynamic array.
-// @param i Optional index variable name. Defaults to 'idx' if not provided.
-// @param it Optional variable name. Defaults to 'it' if not provided.
-// @example
-// da_foreach_i(&arr) {
-//   printf("%zu: %d\n", i, it);
-// }
-// da_foreach_i(&arr, i, x) {
-//   printf("%zu: %d\n", i, x);
-// }
-// @>
 #define da_foreach_i(...) \
   _DA_FOREACH_I_GET(__VA_ARGS__, _DA_FOREACH_I_3, _, _DA_FOREACH_I_1)(__VA_ARGS__)
 
@@ -1546,16 +1150,7 @@ void _da_free(_da_base* arr) {
 
 #include <stdio.h>
 
-// <@
-// @name read_entire_file
-// @kind function
-// @desc Reads the entire contents of a file into a string builder.
-// Existing contents of the string builder are cleared.
-// @param path Path to the file.
-// @param sb Destination string builder.
-// @return true on success, false on failure.
 bool read_entire_file(const char* path, str_builder* sb) {
-// @>
   FILE* f = fopen(path, "rb");
 
   if (f == nil) {
@@ -1597,15 +1192,7 @@ bool read_entire_file(const char* path, str_builder* sb) {
   return true;
 }
 
-// <@
-// @name write_entire_file_cstr
-// @kind function
-// @desc Writes a null-terminated C string to a file, replacing its contents.
-// @param path Path to the file.
-// @param data The string to write.
-// @return true on success, false on failure.
 bool write_entire_file_cstr(const char* path, const char* data) {
-// @>
   FILE* f = fopen(path, "wb");
 
   if (f == nil) {
@@ -1621,15 +1208,7 @@ bool write_entire_file_cstr(const char* path, const char* data) {
   return written == size;
 }
 
-// <@
-// @name write_entire_file_sv
-// @kind function
-// @desc Writes a string view to a file, replacing its contents.
-// @param path Path to the file.
-// @param sv The string view to write.
-// @return true on success, false on failure.
 bool write_entire_file_sv(const char* path, str_view sv) {
-// @>
   FILE* f = fopen(path, "wb");
 
   if (f == nil) {
@@ -1644,15 +1223,7 @@ bool write_entire_file_sv(const char* path, str_view sv) {
 }
 
 
-// <@
-// @name write_entire_file_sv_ptr
-// @kind function
-// @desc Writes a string view pointed to by sv to a file.
-// @param path Path to the file.
-// @param sv Pointer to the string view to write.
-// @return true on success, false on failure.
 bool write_entire_file_sv_ptr(const char* path, str_view* sv) {
-// @>
   if (sv == nil) {
     return false;
   }
@@ -1663,15 +1234,7 @@ bool write_entire_file_sv_ptr(const char* path, str_view* sv) {
   );
 }
 
-// <@
-// @name write_entire_file_sb
-// @kind function
-// @desc Writes the contents of a string builder to a file.
-// @param path Path to the file.
-// @param sb The string builder to write.
-// @return true on success, false on failure.
 bool write_entire_file_sb(const char* path, str_builder sb) {
-// @>
   FILE* f = fopen(path, "wb");
 
   if (f == nil) {
@@ -1685,15 +1248,7 @@ bool write_entire_file_sb(const char* path, str_builder sb) {
   return written == sb.count;
 }
 
-// <@
-// @name write_entire_file_sb_ptr
-// @kind function
-// @desc Writes the contents of a string builder pointed to by sb to a file.
-// @param path Path to the file.
-// @param sb Pointer to the string builder to write.
-// @return true on success, false on failure.
 bool write_entire_file_sb_ptr(const char* path, str_builder* sb) {
-// @>
   if (sb == nil) {
     return false;
   }
@@ -1701,14 +1256,6 @@ bool write_entire_file_sb_ptr(const char* path, str_builder* sb) {
   return write_entire_file_sb(path, *sb);
 }
 
-// <@
-// @name write_entire_file
-// @kind macro
-// @desc Generic file writing macro supporting C strings, string views and string builders.
-// Supported types depend on enabled utilities.
-// @param path Path to the file.
-// @param data The data to write.
-// @>
 #define write_entire_file(path, data)            \
   _Generic((data),                               \
     char*: write_entire_file_cstr,               \
@@ -1780,6 +1327,7 @@ typedef struct flags {
   _Generic((def),                           \
     char*: _add_flag_string,                \
     const char*: _add_flag_string,          \
+    str_view: _add_flag_str_view,           \
     int: _add_flag_int,                     \
     bool: _add_flag_bool                    \
   )(a, name, description, def)
@@ -1839,7 +1387,7 @@ static void* _add_flag(flags* ar, const char* name, const char* description, fla
   return &ar->flags[ar->flags_count - 1].value;
 }
 
-const char** _add_flag_string(flags* a, const char* name, const char* description, const char* def) {
+str_view* _add_flag_string(flags* a, const char* name, const char* description, const char* def) {
   if (def == nullptr) {
     def = "";
   }
@@ -1848,7 +1396,16 @@ const char** _add_flag_string(flags* a, const char* name, const char* descriptio
     return nullptr;
   }
   a->flags[a->flags_count - 1].value.string_value = str_view_from_cstr(def);
-  return (const char**)got;
+  return (str_view*)got;
+}
+
+str_view* _add_flag_str_view(flags* a, const char* name, const char* description, str_view def) {
+  void* got = _add_flag(a, name, description, STRING);
+  if (!got) {
+    return nullptr;
+  }
+  a->flags[a->flags_count - 1].value.string_value = def;
+  return (str_view*)got;
 }
 
 int* _add_flag_int(flags* a, const char* name, const char* description, int def) {
