@@ -66,14 +66,14 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
-#ifndef _UTILS_C
-#define _UTILS_C
+#ifndef _UTILS_H
+#define _UTILS_H
 
 #if !defined(__STDC_VERSION__) || __STDC_VERSION__ < 202311L
-#error utils.c requires C23 or later
+#error utils.h requires C23 or later
 #endif
 
-static_assert(sizeof(void*) == 8, "utils.c requires 64-bit pointers");
+static_assert(sizeof(void*) == 8, "utils.h requires 64-bit pointers");
 
 #include <stdint.h>
 #include <stddef.h>
@@ -1769,4 +1769,4 @@ bool flags_parse(flags* a, int flagc, char** flagv) {
 
 #endif // USE_FLAGS_UTILS
 
-#endif // _UTILS_C
+#endif // _UTILS_H
