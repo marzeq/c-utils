@@ -55,11 +55,19 @@ typedef ptrdiff_t isz;
 #define TODO(message) assert(0 && "TODO:" message)
 
 
+#ifdef USE_ALL_UTILS
+#define USE_ALLOC_UTILS
+#define USE_DEFER_UTILS
+#define USE_STR_UTILS
+#define USE_DA_UTILS
+#define USE_FILE_UTILS
+#endif
+
+
 // Handle dependencies between utilities.
 #ifdef USE_FILE_UTILS
 #define USE_STR_UTILS
 #endif
-
 
 #ifdef USE_ALLOC_UTILS
 
@@ -140,7 +148,7 @@ static bool _tracking_allocator_resize(tracking_allocator* tracker) {
 // @return true if the pointer was successfully tracked, false if there was an error (e.g. out of memory).
 // @param tracker The tracking_allocator to track the pointer in.
 // @param ptr The pointer to track.
-static bool tracking_allocator_track_ptr(tracking_allocator* tracker, void* ptr) {
+bool tracking_allocator_track_ptr(tracking_allocator* tracker, void* ptr) {
 // @>
   if (ptr == nil) {
     return false;
@@ -174,7 +182,7 @@ static bool tracking_allocator_track_ptr(tracking_allocator* tracker, void* ptr)
 // @desc Untracks a pointer in the tracking_allocator.
 // @param tracker The tracking_allocator to untrack the pointer from.
 // @param ptr The pointer to untrack.
-static void tracking_allocator_untrack_ptr(tracking_allocator* tracker, void* ptr) {
+void tracking_allocator_untrack_ptr(tracking_allocator* tracker, void* ptr) {
 // @>
   for (usz i = 0; i < tracker->count; i++) {
     if (tracker->allocations[i] == ptr) {
@@ -564,6 +572,121 @@ static allocator _make_allocator_arena(arena* arena) {
     (__VA_ARGS__)
 
 
+typedef struct {
+  arena_block* block;
+  usz used;
+} arena_save_point;
+
+// <@
+// @name arena_save
+// @kind function
+// @desc Saves the current allocation position of an arena.
+// @param a The arena to save.
+// @return A save point that can later be passed to arena_restore.
+arena_save_point arena_save(arena* a) {
+// @>
+  return (arena_save_point){
+    .block = a->current,
+    .used = a->current ? a->current->used : 0,
+  };
+}
+
+// <@
+// @name arena_restore
+// @kind function
+// @desc Restores an arena to a previously saved allocation position.
+// All allocations made after the save point are discarded.
+// @param a The arena to restore.
+// @param save The save point to restore to.
+void arena_restore(arena* a, arena_save_point save) {
+// @>
+  arena_block *block = a->current;
+
+  while (block && block != save.block) {
+    arena_block *prev = block->prev;
+    _arena_release_block(a, block);
+    block = prev;
+  }
+
+  a->current = save.block;
+
+  if (a->current) {
+    a->current->used = save.used;
+  }
+}
+
+// <@
+// @name scratch
+// @kind type
+// @desc A temporary allocation context backed by an arena.
+// Memory allocated through its allocator is released when scratch_end is called.
+// @kind struct
+// @>
+typedef struct {
+  arena* backing;
+  arena_save_point save;
+  allocator alloc;
+} scratch;
+
+thread_local arena _scratch_arenas[2];
+
+static bool _scratch_has_conflict(arena* a, arena** conflicts, usz count) {
+  for (usz i = 0; i < count; ++i) {
+    if (conflicts[i] == a) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+// <@
+// @name scratch_begin_with
+// @kind function
+// @desc Acquires a scratch allocation context while avoiding a set of conflicting arenas.
+// @param conflict An arena that should not be used for the scratch context.
+// @param count The number of arenas in the conflicts array.
+// @return A scratch context backed by a non-conflicting arena. The returned context must be released with scratch_end.
+scratch scratch_begin_with(const scratch *conflict) {
+// @>
+  arena *a = nil;
+
+  for (usz i = 0; i < 2; ++i) {
+    if (conflict == nil || &_scratch_arenas[i] != conflict->backing) {
+      a = &_scratch_arenas[i];
+      break;
+    }
+  }
+
+  assert(a != nil);
+
+  return (scratch){
+    .backing= a,
+    .save = arena_save(a),
+    .alloc = make_allocator(a),
+  };
+}
+
+// <@
+// @name scratch_begin
+// @kind function
+// @desc Acquires a scratch allocation context using an available scratch arena.
+// @return A scratch context that can be used for temporary allocations. The returned context must be released with scratch_end.
+scratch scratch_begin(void) {
+// @>
+  return scratch_begin_with(nil);
+}
+
+// <@
+// @name scratch_end
+// @kind function
+// @desc Releases a scratch allocation context and discards all allocations made through it.
+// @param s The scratch context to release.
+void scratch_end(scratch s) {
+// @>
+  arena_restore(s.backing, s.save);
+}
+
 #endif // USE_ALLOC_UTILS
 
 
@@ -651,23 +774,6 @@ bool str_view_ends_with(str_view sv, str_view suffix);
 bool str_view_starts_with(str_view sv, str_view prefix);
 str_view str_view_from_cstr(const char *cstr);
 str_view str_view_from_parts(const char *data, size_t count);
-
-// <@
-// @name svpfmt
-// @kind macro
-// @desc printf format string helper for printing str_view values with printf-style functions.
-// @example printf(svpfmt, svpfarg(sv));
-// @see_also svpfarg
-// @>
-#define svpfmt "%.*s"
-// <@
-// @name svpfarg
-// @kind macro
-// @desc Expands a str_view into printf arguments compatible with svpfmt.
-// @param sv The str_view to print.
-// @see_also svpfmt
-// @>
-#define svpfarg(sv) (int)(sv).count, (sv).data
 
 // <@
 // @name str_view_chop_while
@@ -946,24 +1052,22 @@ typedef struct {
 // @>
 
 // <@
-// @name sbpfmt
+// @name sfmt
 // @kind macro
-// @desc printf format string helper for printing str_builder contents.
-// @example printf(sbpfmt, sbpfarg(sb));
-// @see_also sbpfarg
+// @desc printf format string helper for printing str_view or str_builder contents.
+// @example printf(svpfmt, svpfarg(sv));
+// @see_also sfmtarg
 // @>
-#define sbpfmt "%.*s"
+#define sfmt "%.*s"
 
 // <@
-// @name sbpfarg
+// @name sfmtarg
 // @kind macro
-// @desc Expands a str_builder into printf arguments compatible with sbpfmt.
-// @param sb The string builder to print.
-// @see_also sbpfmt
+// @desc Expands a str_view or str_builder into printf arguments compatible with sfmt.
+// @param sv The str_view or str_builder to expand.
+// @see_also sfmt
 // @>
-#define sbpfarg(sb) \
-  (int)(sb).count,  \
-  (sb).data
+#define sfmtarg(sv) (int)(sv).count, (sv).data
 
 #ifdef USE_ALLOC_UTILS
 

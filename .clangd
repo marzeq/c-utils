@@ -4,11 +4,8 @@ CompileFlags:
   Add:
     - -xc
     - -std=c23
-    - "-D__clangd__"
-    - "-DUSE_ALLOC_UTILS"
-    - "-DUSE_DEFER_UTILS"
-    - "-DUSE_DA_UTILS"
-    - "-DUSE_FILE_UTILS"
+    - -D__clangd__
+    - -DUSE_ALL_UTILS
 
 ---
 
