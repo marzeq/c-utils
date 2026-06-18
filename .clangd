@@ -5,15 +5,10 @@ CompileFlags:
     - -xc
     - -std=c23
     - "-D__clangd__"
-    - "-DUTILS_IMPLEMENTATION"
-    - "-DUSE_RANDOM_UTIL"
-    - "-DUSE_ALLOC_UTIL"
-    - "-DUSE_OPTION_UTIL"
-    - "-DUSE_DEFER_UTIL"
-    - "-DUSE_STR_VIEW_UTIL"
-    - "-DUSE_DYN_ARR_UTIL"
-    - "-DUSE_STR_BUILDER_UTIL"
-    - "-DUSE_FILE_UTIL"
+    - "-DUSE_ALLOC_UTILS"
+    - "-DUSE_DEFER_UTILS"
+    - "-DUSE_DA_UTILS"
+    - "-DUSE_FILE_UTILS"
 
 ---
 
@@ -21,4 +16,5 @@ If:
   PathMatch: .*\.c$
 CompileFlags:
   Add: 
+    - -D__clangd__
     - -std=c23

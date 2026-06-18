@@ -1,25 +1,19 @@
 /*
-utils.c - Random C utilities to make it more bearable to work with.
-Made for my usecase.
-
-Tested with C23 only.
+utils.c - Random C utilities to make it more bearable to work with. Made for my usecases.
 
 Some of these come from other people licensed in the public domain, some I wrote myself.
 
-Documentation is included at the end of the file.
-
 Licensed in the public domain. Do whatever you want with it.
-
-Styleguide:
-- 2 space indentation,
-- pointers aligned to the type (int* ptr, not int *ptr),
-- use snake_case for functions, function-like macros, variables and types,
-- use ALL_CAPS for macro expansions and macro constants,
-- use shorthands defined below always.
 */
 
 #ifndef _UTILS_C
 #define _UTILS_C
+
+#if !defined(__STDC_VERSION__) || __STDC_VERSION__ < 202311L
+#error utils.c requires C23 or later
+#endif
+
+static_assert(sizeof(void*) == 8, "utils.c requires 64-bit pointers");
 
 #include <stdint.h>
 #include <stddef.h>
@@ -42,308 +36,35 @@ typedef double   f64;
 typedef size_t   usz;
 typedef ptrdiff_t isz;
 
-#define u8_max  UINT8_MAX
-#define u16_max UINT16_MAX
-#define u32_max UINT32_MAX
-#define u64_max UINT64_MAX
+#define U8_MAX  UINT8_MAX
+#define U16_MAX UINT16_MAX
+#define U32_MAX UINT32_MAX
+#define U64_MAX UINT64_MAX
 
-#define i8_min  INT8_MIN
-#define i8_max  INT8_MAX
-#define i16_min INT16_MIN
-#define i16_max INT16_MAX
-#define i32_min INT32_MIN
-#define i32_max INT32_MAX
-#define i64_min INT64_MIN
-#define i64_max INT64_MAX
+#define I8_MIN  INT8_MIN
+#define I8_MAX  INT8_MAX
+#define I16_MIN INT16_MIN
+#define I16_MAX INT16_MAX
+#define I32_MIN INT32_MIN
+#define I32_MAX INT32_MAX
+#define I64_MIN INT64_MIN
+#define I64_MAX INT64_MAX
 
 #define nil NULL
 
-#define _int_by_1_5(val) \
-  ((val) + (val) / 2)
-
-#ifdef USE_RANDOM_UTIL
-
-#include <sys/random.h>
-#include <errno.h>
-#include <assert.h>
-
-// <@
-// @name random_u64
-// @kind function
-// @return A random u64 value.
-inline u64 random_u64(void) {
-// @>
-  u64 value = 0;
-  usz offset = 0;
-
-  while (offset < sizeof(value)) {
-    ssize_t result = getrandom(
-      ((u8*)&value) + offset,
-      sizeof(value) - offset,
-      0
-    );
-
-    if (result <= 0) {
-      if (errno == EINTR) {
-        continue;
-      }
-
-      assert(0 && "getrandom failed");
-    }
-
-    offset += (usz)result;
-  }
-
-  return value;
-}
-
-// <@
-// @name random_i64
-// @kind function
-// @return A random i64 value.
-inline i64 random_i64(void) {
-// @>
-  return (i64)random_u64();
-}
-
-// <@
-// @name random_u32
-// @kind function
-// @return A random u32 value.
-inline u32 random_u32(void) {
-// @>
-  return (u32)random_u64();
-}
-
-// <@
-// @name random_i32
-// @kind function
-// @return A random i32 value.
-inline i32 random_i32(void) {
-// @>
-  return (i32)random_u32();
-}
-
-// <@
-// @name random_u16
-// @kind function
-// @return A random u16 value.
-inline u16 random_u16(void) {
-// @>
-  return (u16)random_u64();
-}
-
-// <@
-// @name random_i16
-// @kind function
-// @return A random i16 value.
-inline i16 random_i16(void) {
-// @>
-  return (i16)random_u16();
-}
-
-// <@
-// @name random_u8
-// @kind function
-// @return A random u8 value.
-inline u8 random_u8(void) {
-// @>
-  return (u8)random_u64();
-}
-
-// <@
-// @name random_i8
-// @kind function
-// @return A random i8 value.
-inline i8 random_i8(void) {
-// @>
-  return (i8)random_u8();
-}
-
-// <@
-// @name random_u64_range
-// @kind function
-// @desc Returns a random u64 value in the range [min, max]. If min > max, the values are swapped.
-// @param min The minimum value of the range (inclusive).
-// @param max The maximum value of the range (inclusive).
-// @return A random u64 value in the specified range.
-inline u64 random_u64_range(u64 min, u64 max) {
-// @>
-  if (min > max) {
-    u64 tmp = min;
-    min = max;
-    max = tmp;
-  }
-
-  if (min == 0 && max == u64_max) {
-    return random_u64();
-  }
-
-  u64 range = max - min + 1;
-
-  u64 limit = u64_max - (u64_max % range);
-
-  u64 value;
-
-  do {
-    value = random_u64();
-  } while (value >= limit);
-
-  return min + (value % range);
-}
-
-// <@
-// @name random_i64_range
-// @kind function
-// @desc Returns a random i64 value in the range [min, max]. If min > max, the values are swapped.
-// @param min The minimum value of the range (inclusive).
-// @param max The maximum value of the range (inclusive).
-// @return A random i64 value in the specified range.
-inline i64 random_i64_range(i64 min, i64 max) {
-// @>
-  if (min > max) {
-    i64 tmp = min;
-    min = max;
-    max = tmp;
-  }
-
-  u64 range = (u64)max - (u64)min + 1;
-
-  u64 limit = u64_max - (u64_max % range);
-
-  u64 value;
-
-  do {
-    value = random_u64();
-  } while (value >= limit);
-
-  return min + (i64)(value % range);
-}
-
-// <@
-// @name random_u32_range
-// @kind function
-// @desc Returns a random u32 value in the range [min, max]. If min > max, the values are swapped.
-// @param min The minimum value of the range (inclusive).
-// @param max The maximum value of the range (inclusive).
-// @return A random u32 value in the specified range.
-inline u32 random_u32_range(u32 min, u32 max) {
-// @>
-  return (u32)random_u64_range(min, max);
-}
-
-// <@
-// @name random_i32_range
-// @kind function
-// @desc Returns a random i32 value in the range [min, max]. If min > max, the values are swapped.
-// @param min The minimum value of the range (inclusive).
-// @param max The maximum value of the range (inclusive).
-// @return A random i32 value in the specified range.
-inline i32 random_i32_range(i32 min, i32 max) {
-// @>
-  return (i32)random_i64_range(min, max);
-}
-
-// <@
-// @name random_u16_range
-// @kind function
-// @desc Returns a random u16 value in the range [min, max]. If min > max, the values are swapped.
-// @param min The minimum value of the range (inclusive).
-// @param max The maximum value of the range (inclusive).
-// @return A random u16 value in the specified range.
-inline u16 random_u16_range(u16 min, u16 max) {
-// @>
-  return (u16)random_u64_range(min, max);
-}
-
-// <@
-// @name random_i16_range
-// @kind function
-// @desc Returns a random i16 value in the range [min, max]. If min > max, the values are swapped.
-// @param min The minimum value of the range (inclusive).
-// @param max The maximum value of the range (inclusive).
-// @return A random i16 value in the specified range.
-inline i16 random_i16_range(i16 min, i16 max) {
-// @>
-  return (i16)random_i64_range(min, max);
-}
-
-// <@
-// @name random_u8_range
-// @kind function
-// @desc Returns a random u8 value in the range [min, max]. If min > max, the values are swapped.
-// @param min The minimum value of the range (inclusive).
-// @param max The maximum value of the range (inclusive).
-// @return A random u8 value in the specified range.
-inline u8 random_u8_range(u8 min, u8 max) {
-// @>
-  return (u8)random_u64_range(min, max);
-}
-
-// <@
-// @name random_i8_range
-// @kind function
-// @desc Returns a random i8 value in the range [min, max]. If min > max, the values are swapped.
-// @param min The minimum value of the range (inclusive).
-// @param max The maximum value of the range (inclusive).
-// @return A random i8 value in the specified range.
-inline i8 random_i8_range(i8 min, i8 max) {
-// @>
-  return (i8)random_i64_range(min, max);
-}
-
-// <@
-// @name random_f64
-// @kind function
-// @return A random f64 value in the range [0.0, 1.0).
-inline f64 random_f64(void) {
-// @>
-  return (f64)random_u64() / ((f64)u64_max + 1.0);
-}
-
-// <@
-// @name random_f32
-// @kind function
-// @return A random f32 value in the range [0.0f, 1.0f).
-inline f32 random_f32(void) {
-// @>
-  return (f32)random_u32() / ((f32)u32_max + 1.0f);
-}
-
-// <@
-// @name random_f64_range
-// @kind function
-// @desc Returns a random f64 value in the range [min, max). If min > max, the values are swapped.
-// @param min The minimum value of the range (inclusive).
-// @param max The maximum value of the range (exclusive).
-// @return A random f64 value in the specified range.
-inline f64 random_f64_range(f64 min, f64 max) {
-// @>
-  return min + (max - min) * random_f64();
-}
-
-// <@
-// @name random_f32_range
-// @kind function
-// @desc Returns a random f32 value in the range [min, max). If min > max, the values are swapped.
-// @param min The minimum value of the range (inclusive).
-// @param max The maximum value of the range (exclusive).
-// @return A random f32 value in the specified range.
-inline f32 random_f32_range(f32 min, f32 max) {
-// @>
-  return min + (max - min) * random_f32();
-}
-
-#endif // USE_RANDOM_UTIL
+#define TODO(message) assert(0 && "TODO:" message)
 
 
+// Handle dependencies between utilities.
+#ifdef USE_FILE_UTILS
+#define USE_STR_UTILS
+#endif
 
-#ifdef USE_ALLOC_UTIL
+
+#ifdef USE_ALLOC_UTILS
 
 #include <string.h>
 #include <assert.h>
-
-typedef struct allocator allocator;
 
 // <@
 // @name allocator
@@ -354,98 +75,53 @@ typedef struct allocator allocator;
 // @field alloc A function pointer to a function that allocates memory.
 // @field realloc A function pointer to a function that reallocates memory.
 // @field free A function pointer to a function that frees memory.
-struct allocator {
+typedef struct {
   void* ctx;
 
-  void* (*alloc)(
-    void* ctx,
-    usz size
-  );
-
-  void* (*realloc)(
-    void* ctx,
-    void* ptr,
-    usz new_size
-  );
-
-  void (*free)(
-    void* ctx,
-    void* ptr
-  );
-};
+  void* (*alloc)(void* ctx, usz size);
+  void* (*realloc)(void* ctx, void* ptr, usz new_size);
+  void (*free)(void* ctx, void* ptr);
+  void (*reset)(void* ctx);
+} allocator;
 // @>
 
-void* _libc_alloc(
-  void* ctx,
-  usz size
-) {
+static void* _libc_alloc(void* ctx, usz size) {
   (void)ctx;
   return malloc(size);
 }
 
-void* _libc_realloc(
-  void* ctx,
-  void* ptr,
-  usz new_size
-) {
+static void* _libc_realloc(void* ctx, void* ptr, usz new_size) {
   (void)ctx;
 
-  return realloc(
-    ptr,
-    new_size
-  );
+  return realloc(ptr, new_size);
 }
 
-void _libc_free(
-  void* ctx,
-  void* ptr
-) {
+static void _libc_free(void* ctx, void* ptr) {
   (void)ctx;
   free(ptr);
 }
 
-// <@
-// @name libc_allocator
-// @kind function
-// @return An allocator that uses the C standard library's malloc, realloc and free functions.
-allocator libc_allocator(void) {
-// @>
-  return (allocator) {
-    .ctx = nil,
-    .alloc = _libc_alloc,
-    .realloc = _libc_realloc,
-    .free = _libc_free,
-  };
+static void _libc_reset(void* ctx) {
+  (void)ctx;
+  assert(0 && "libc_allocator does not support reset");
 }
 
 // <@
-// @name alloc_tracker
+// @name tracking_allocator
 // @kind type
-// @desc A struct that can be used to track allocations made by an allocator.
-// It contains a dynamic array of pointers to the allocated memory, as well as the count and capacity of the array.
-// This can be used to free all allocated memory at once, or to check if a pointer was allocated by the allocator.
+// @desc An allocator that tracks all allocations made through it.
 // @warning This allocator is not thread-safe and should only be used in a single-threaded context.
-// @field allocations A dynamic array of pointers to the allocated memory.
-// @field count The number of allocated pointers currently being tracked.
-// @field capacity The capacity of the allocations array.
+// @>
 typedef struct {
   void** allocations;
   usz count;
   usz capacity;
-} alloc_tracker;
-// @>
+} tracking_allocator;
 
-bool _alloc_tracker_resize(
-  alloc_tracker* tracker
-) {
-  usz new_capacity =
-    _int_by_1_5(tracker->capacity);
+static bool _tracking_allocator_resize(tracking_allocator* tracker) {
+  usz new_capacity = tracker->capacity * 2;
 
-  void** new_allocations =
-    realloc(
-      tracker->allocations,
-      sizeof(void*) * new_capacity
-    );
+  void** new_allocations = realloc(tracker->allocations, sizeof(void*) * new_capacity);
 
   if (new_allocations == nil) {
     return false;
@@ -458,16 +134,13 @@ bool _alloc_tracker_resize(
 }
 
 // <@
-// @name alloc_tracker_track_ptr
+// @name tracking_allocator_track_ptr
 // @kind function
-// @desc Tracks a pointer in the alloc_tracker. This should be called whenever memory is allocated using the tracked allocator.
+// @desc Tracks a pointer in the tracking_allocator. This should be called whenever memory is allocated using the tracked allocator.
 // @return true if the pointer was successfully tracked, false if there was an error (e.g. out of memory).
-// @param tracker The alloc_tracker to track the pointer in.
+// @param tracker The tracking_allocator to track the pointer in.
 // @param ptr The pointer to track.
-bool alloc_tracker_track_ptr(
-  alloc_tracker* tracker,
-  void* ptr
-) {
+static bool tracking_allocator_track_ptr(tracking_allocator* tracker, void* ptr) {
 // @>
   if (ptr == nil) {
     return false;
@@ -476,11 +149,7 @@ bool alloc_tracker_track_ptr(
   if (tracker->allocations == nil) {
     tracker->capacity = 16;
 
-    tracker->allocations =
-      malloc(
-        sizeof(void*) *
-        tracker->capacity
-      );
+    tracker->allocations = malloc(sizeof(void*) * tracker->capacity);
 
     if (tracker->allocations == nil) {
       tracker->capacity = 0;
@@ -489,35 +158,27 @@ bool alloc_tracker_track_ptr(
   }
 
   if (tracker->count >= tracker->capacity) {
-    if (!_alloc_tracker_resize(tracker)) {
+    if (!_tracking_allocator_resize(tracker)) {
       return false;
     }
   }
 
-  tracker->allocations[
-    tracker->count++
-  ] = ptr;
+  tracker->allocations[tracker->count++ ] = ptr;
 
   return true;
 }
 
 // <@
-// @name alloc_tracker_untrack_ptr
+// @name tracking_allocator_untrack_ptr
 // @kind function
-// @desc Untracks a pointer in the alloc_tracker.
-// @param tracker The alloc_tracker to untrack the pointer from.
+// @desc Untracks a pointer in the tracking_allocator.
+// @param tracker The tracking_allocator to untrack the pointer from.
 // @param ptr The pointer to untrack.
-void alloc_tracker_untrack_ptr(
-  alloc_tracker* tracker,
-  void* ptr
-) {
+static void tracking_allocator_untrack_ptr(tracking_allocator* tracker, void* ptr) {
 // @>
   for (usz i = 0; i < tracker->count; i++) {
     if (tracker->allocations[i] == ptr) {
-      tracker->allocations[i] =
-        tracker->allocations[
-          tracker->count - 1
-        ];
+      tracker->allocations[i] = tracker->allocations[tracker->count - 1];
 
       tracker->count -= 1;
 
@@ -526,11 +187,8 @@ void alloc_tracker_untrack_ptr(
   }
 }
 
-void* _tracked_alloc(
-  void* ctx,
-  usz size
-) {
-  alloc_tracker* tracker = ctx;
+static void* _tracked_alloc(void* ctx, usz size) {
+  tracking_allocator* tracker = ctx;
 
   void* ptr = malloc(size);
 
@@ -538,12 +196,7 @@ void* _tracked_alloc(
     return nil;
   }
 
-  if (
-    !alloc_tracker_track_ptr(
-      tracker,
-      ptr
-    )
-  ) {
+  if (!tracking_allocator_track_ptr(tracker, ptr)) {
     free(ptr);
     return nil;
   }
@@ -551,12 +204,8 @@ void* _tracked_alloc(
   return ptr;
 }
 
-void* _tracked_realloc(
-  void* ctx,
-  void* ptr,
-  usz new_size
-) {
-  alloc_tracker* tracker = ctx;
+static void* _tracked_realloc(void* ctx, void* ptr, usz new_size) {
+  tracking_allocator* tracker = ctx;
 
   if (ptr == nil) {
     void* new_ptr =
@@ -566,12 +215,7 @@ void* _tracked_realloc(
       return nil;
     }
 
-    if (
-      !alloc_tracker_track_ptr(
-        tracker,
-        new_ptr
-      )
-    ) {
+    if (!tracking_allocator_track_ptr(tracker, new_ptr)) {
       free(new_ptr);
       return nil;
     }
@@ -580,22 +224,14 @@ void* _tracked_realloc(
   }
 
   for (usz i = 0; i < tracker->count; i++) {
-    if (
-      tracker->allocations[i] ==
-      ptr
-    ) {
-      void* new_ptr =
-        realloc(
-          ptr,
-          new_size
-        );
+    if (tracker->allocations[i] == ptr) {
+      void* new_ptr = realloc(ptr, new_size);
 
       if (new_ptr == nil) {
         return nil;
       }
 
-      tracker->allocations[i] =
-        new_ptr;
+      tracker->allocations[i] = new_ptr;
 
       return new_ptr;
     }
@@ -604,51 +240,18 @@ void* _tracked_realloc(
   return nil;
 }
 
-void _tracked_free(
-  void* ctx,
-  void* ptr
-) {
-  alloc_tracker* tracker = ctx;
+static void _tracked_free(void* ctx, void* ptr) {
+  tracking_allocator* tracker = ctx;
 
-  alloc_tracker_untrack_ptr(
-    tracker,
-    ptr
-  );
+  tracking_allocator_untrack_ptr(tracker, ptr);
 
   free(ptr);
 }
 
-// <@
-// @name tracked_allocator
-// @kind function
-// @param tracker The alloc_tracker to track the allocated pointers in.
-// @return An allocator that tracks all allocated pointers in the given alloc_tracker.
-allocator tracked_allocator(
-  alloc_tracker* tracker
-) {
-// @>
-  return (allocator) {
-    .ctx = tracker,
-    .alloc = _tracked_alloc,
-    .realloc = _tracked_realloc,
-    .free = _tracked_free,
-  };
-}
-
-// <@
-// @name alloc_tracker_free_all
-// @kind function
-// @desc Frees all pointers currently being tracked by the alloc_tracker, and resets the tracker to an empty state.
-// This should be used to free all memory allocated by a tracked allocator at once.
-// @param tracker The alloc_tracker to free all tracked pointers from.
-void alloc_tracker_free_all(
-  alloc_tracker* tracker
-) {
-// @>
+static void _tracking_allocator_reset(void* ctx) {
+  tracking_allocator* tracker = ctx;
   for (usz i = 0; i < tracker->count; i++) {
-    free(
-      tracker->allocations[i]
-    );
+    free(tracker->allocations[i]);
   }
 
   free(tracker->allocations);
@@ -658,353 +261,314 @@ void alloc_tracker_free_all(
   tracker->capacity = 0;
 }
 
-#ifndef ARENA_ALIGNMENT
-#define ARENA_ALIGNMENT 8
-#endif
-
-typedef struct arena_chunk {
-  u8* memory;
+typedef struct arena_block arena_block;
+struct arena_block {
+  arena_block* next;
+  arena_block* prev;
   usz capacity;
-  usz offset;
-  struct arena_chunk* next;
-} _arena_chunk;
+  usz used;
+  bool dedicated;
+};
 
 typedef struct {
-  _arena_chunk* head;
-  _arena_chunk* tail;
-  _arena_chunk* current;
-  usz chunk_size;
-} _arena_class;
+  arena_block* block;
+  usz size;
+} arena_header;
 
 // <@
 // @name arena
 // @kind type
-// @desc A struct that represents a memory arena allocator.
-// @note All fiels are private and should not be accessed directly. Use the provided functions to interact with the arena.
+// @desc A memory arena that allocates memory in blocks and allows for efficient allocation and deallocation of memory.
+// @kind struct
 // @>
 typedef struct {
-  _arena_class primary;
-  _arena_class oversized;
+  arena_block* first;
+  arena_block* current;
+  usz block_size;
 } arena;
 
-_Static_assert(
-  (ARENA_ALIGNMENT &
-  (ARENA_ALIGNMENT - 1)) == 0,
-  "ARENA_ALIGNMENT must be a power of two"
-);
+#ifndef ARENA_MIN_BLOCK_SIZE
+#define ARENA_MIN_BLOCK_SIZE 256
+#endif
 
-usz _arena_align(
-  usz x
-) {
-  usz mask =
-    ARENA_ALIGNMENT - 1;
+static usz _arena_align_up(usz size) {
+  usz align = sizeof(void*) - 1;
 
-  return (x + mask) & ~mask;
+  return (size + align) & ~align;
 }
 
-_arena_chunk* _arena_chunk_create(
-  usz capacity
-) {
-  _arena_chunk* c =
-    malloc(sizeof(_arena_chunk));
+static arena_block* _arena_new_block(usz capacity, bool dedicated) {
+  arena_block* block = malloc(sizeof(arena_block) + capacity);
 
-  if (c == nil) {
+  if (block == nil) {
     return nil;
   }
 
-  c->memory =
-    malloc(capacity);
+  block->next = nil;
+  block->prev = nil;
+  block->capacity = capacity;
+  block->used = 0;
+  block->dedicated = dedicated;
 
-  if (c->memory == nil) {
-    free(c);
-    return nil;
-  }
-
-  c->capacity = capacity;
-  c->offset = 0;
-  c->next = nil;
-
-  return c;
+  return block;
 }
 
-void _arena_class_init(
-  _arena_class* cls,
-  usz chunk_size
-) {
-  cls->head = nil;
-  cls->tail = nil;
-  cls->current = nil;
-  cls->chunk_size = chunk_size;
+static void _arena_link_after(arena_block* prev, arena_block* block) {
+  block->prev = prev;
+  block->next = prev->next;
+
+  if (prev->next != nil) {
+    prev->next->prev = block;
+  }
+
+  prev->next = block;
 }
 
-void _arena_class_destroy(
-  _arena_class* cls
-) {
-  _arena_chunk* c =
-    cls->head;
-
-  while (c != nil) {
-    _arena_chunk* next =
-      c->next;
-
-    free(c->memory);
-    free(c);
-
-    c = next;
+static void _arena_release_block(arena* arena, arena_block* block) {
+  if (block->prev != nil) {
+    block->prev->next = block->next;
+  } else {
+    arena->first = block->next;
   }
 
-  cls->head = nil;
-  cls->tail = nil;
-  cls->current = nil;
+  if (block->next != nil) {
+    block->next->prev = block->prev;
+  }
+
+  if (arena->current == block) {
+    arena->current = block->prev;
+  }
+
+  free(block);
 }
 
-void _arena_class_reset(
-  _arena_class* cls
-) {
-  for (
-    _arena_chunk* c = cls->head;
-    c != nil;
-    c = c->next
-  ) {
-    c->offset = 0;
+static void* _arena_alloc(void* ctx, usz size) {
+  arena* a = ctx;
+  size = _arena_align_up(size);
+
+  usz total_size = _arena_align_up(sizeof(arena_header)) + size;
+
+  if (a->block_size < ARENA_MIN_BLOCK_SIZE) {
+    a->block_size = ARENA_MIN_BLOCK_SIZE;
   }
 
-  cls->current = cls->head;
-}
+  if (a->current == nil) {
+    arena_block* block = _arena_new_block(a->block_size, false);
 
-void* _arena_class_alloc(
-  _arena_class* cls,
-  usz size
-) {
-  size = _arena_align(size);
-
-  if (cls->current == nil) {
-    cls->current = cls->head;
-  }
-
-  while (
-    cls->current != nil &&
-    cls->current->offset +
-    size >
-    cls->current->capacity
-  ) {
-    cls->current =
-      cls->current->next;
-  }
-
-  if (cls->current == nil) {
-    usz alloc_size =
-      size > cls->chunk_size
-      ? size
-      : cls->chunk_size;
-
-    _arena_chunk* chunk =
-      _arena_chunk_create(
-        alloc_size
-      );
-
-    if (chunk == nil) {
+    if (block == nil) {
       return nil;
     }
 
-    if (cls->head == nil) {
-      cls->head = chunk;
-      cls->tail = chunk;
-    } else {
-      cls->tail->next =
-        chunk;
+    a->first = block;
+    a->current = block;
+  }
 
-      cls->tail = chunk;
+  if (total_size > a->current->capacity / 2) {
+    arena_block* block = _arena_new_block(total_size, true);
+
+    if (block == nil) {
+      return nil;
     }
 
-    cls->current = chunk;
+    _arena_link_after(a->current, block);
+
+    arena_header* header = (arena_header*)(block + 1);
+
+    header->block = block;
+    header->size = size;
+
+    block->used = total_size;
+
+    return header + 1;
   }
 
-  void* ptr =
-    cls->current->memory +
-    cls->current->offset;
+  if (a->current->used + total_size > a->current->capacity) {
+    usz capacity = a->current->capacity * 2;
 
-  cls->current->offset +=
-    size;
+    if (capacity < total_size) {
+      capacity = total_size;
+    }
 
-  return ptr;
-}
+    arena_block* block = _arena_new_block(capacity, false);
 
-// <@
-// @name arena_init_custom
-// @kind function
-// @desc Initializes an arena with a custom chunk size. The chunk size determines how much memory is allocated at once when the arena needs to grow.
-// @param a The arena to initialize.
-// @param chunk_size The chunk size to use for the arena. This should be a multiple of ARENA_ALIGNMENT. If not specified, it defaults to 64 KB.
-// @return true if the arena was successfully initialized, false if there was an error (e.g. out of memory).
-bool arena_init_custom(
-  arena* a,
-  usz chunk_size
-) {
-// @>
-  if (a == nil) {
-    return false;
+    if (block == nil) {
+      return nil;
+    }
+
+    _arena_link_after(a->current, block);
+
+    a->current = block;
   }
 
-  _arena_class_init(
-    &a->primary,
-    chunk_size
-  );
+  arena_header* header = (arena_header*)((u8*)(a->current + 1) + a->current->used);
 
-  _arena_class_init(
-    &a->oversized,
-    chunk_size
-  );
+  header->block = a->current;
+  header->size = size;
 
-  return true;
+  a->current->used += total_size;
+
+  return header + 1;
 }
 
-// <@
-// @name arena_init
-// @kind function
-// @desc Initializes an arena with the default chunk size (64 KB). The chunk size determines how much memory is allocated at once when the arena needs to grow.
-// @param a The arena to initialize.
-// @return true if the arena was successfully initialized, false if there was an error (e.g. out of memory).
-bool arena_init(
-  arena* a
-) {
-// @>
-  return arena_init_custom(
-    a,
-    64 * 1024
-  );
+static usz _usz_min(usz a, usz b) {
+  return a < b ? a : b;
 }
 
-// <@
-// @name arena_reset
-// @kind function
-// @desc Resets the arena allocator, making all memory allocated from the primary arena reusable.
-// Oversized allocations are freed immediately. Existing pointers allocated from the arena become invalid after this call.
-// @param a The arena to reset.
-void arena_reset(
-  arena* a
-) {
-// @>
-  _arena_class_reset(
-    &a->primary
-  );
+static void _arena_free(void* ctx, void* ptr) {
+  arena* a = ctx;
 
-  _arena_class_destroy(
-    &a->oversized
-  );
-
-  _arena_class_init(
-    &a->oversized,
-    a->primary.chunk_size
-  );
-}
-
-// <@
-// @name arena_destroy
-// @kind function
-// @desc Frees all memory owned by the arena, including primary and oversized allocations.
-// All pointers allocated from the arena become invalid after this call.
-// @param a The arena to destroy.
-void arena_destroy(
-  arena* a
-) {
-// @>
-  _arena_class_destroy(
-    &a->primary
-  );
-
-  _arena_class_destroy(
-    &a->oversized
-  );
-}
-
-// <@
-// @name arena_alloc
-// @kind function
-// @desc Allocates memory from the arena.
-// Allocations smaller than or equal to the arena chunk size are served from the primary arena.
-// Larger allocations are stored separately as oversized allocations.
-// @param a The arena to allocate memory from.
-// @param size The number of bytes to allocate.
-// @return A pointer to the allocated memory, or nil if allocation failed.
-void* arena_alloc(
-  arena* a,
-  usz size
-) {
-// @>
-  size = _arena_align(size);
-
-  if (
-    size <=
-    a->primary.chunk_size
-  ) {
-    return _arena_class_alloc(
-      &a->primary,
-      size
-    );
+  if (ptr == nil) {
+    return;
   }
 
-  return _arena_class_alloc(
-    &a->oversized,
-    size
-  );
+  arena_header* header = (arena_header*)ptr - 1;
+  arena_block* block = header->block;
+
+  usz total_size = _arena_align_up(sizeof(arena_header)) + header->size;
+
+  u8* end = (u8*)header + total_size;
+  u8* block_end = (u8*)(block + 1) + block->used;
+
+  if (end != block_end) {
+    return;
+  }
+
+  block->used -= total_size;
+
+  if (block->used != 0) {
+    return;
+  }
+
+  if (block->dedicated) {
+    _arena_release_block(a, block);
+  } else if (block == a->current && block->prev != nil) {
+    _arena_release_block(a, block);
+  }
 }
 
-void* _arena_alloc(
-  void* ctx,
-  usz size
-) {
-  return arena_alloc(
-    (arena*)ctx,
-    size
-  );
+static void* _arena_realloc(void* ctx, void* ptr, usz new_size) {
+  if (ptr == nil) {
+    return _arena_alloc(ctx, new_size);
+  }
+
+  new_size = _arena_align_up(new_size);
+
+  arena_header* header = (arena_header*)ptr - 1;
+  arena_block* block = header->block;
+
+  usz old_size = header->size;
+  usz old_total = _arena_align_up(sizeof(arena_header)) + old_size;
+  usz new_total = _arena_align_up(sizeof(arena_header)) + new_size;
+
+  u8* end = (u8*)header + old_total;
+  u8* block_end = (u8*)(block + 1) + block->used;
+
+  if (end == block_end) {
+    usz used_without_this = block->used - old_total;
+
+    if (used_without_this + new_total <= block->capacity) {
+      block->used = used_without_this + new_total;
+      header->size = new_size;
+
+      return ptr;
+    }
+  }
+
+  void* new_ptr = _arena_alloc(ctx, new_size);
+
+  if (new_ptr == nil) {
+    return nil;
+  }
+
+  memcpy(new_ptr, ptr, _usz_min(old_size, new_size));
+
+  _arena_free(ctx, ptr);
+
+  return new_ptr;
 }
 
-void* _arena_realloc(
-  void* ctx,
-  void* ptr,
-  usz new_size
-) {
-  (void)ctx;
-  (void)ptr;
-  (void)new_size;
-  assert(0 && "arena does not support realloc. use libc allocator or tracked allocator if you need realloc support");
+static void _arena_reset(void* ctx) {
+  arena* a = ctx;
+
+  arena_block* block = a->first;
+
+  while (block != nil) {
+    arena_block* next = block->next;
+
+    free(block);
+
+    block = next;
+  }
+
+  a->first = nil;
+  a->current = nil;
 }
 
-void _arena_free(
-  void* ctx,
-  void* ptr
-) {
-  (void)ctx;
-  (void)ptr;
-}
-
-
-// <@
-// @name arena_allocator
-// @kind function
-// @desc Creates an allocator interface backed by the arena allocator.
-// @warning realloc is not supported by this allocator and will assert if used.
-// @note free is a no-op; memory is reclaimed only when the arena is reset or destroyed.
-// @param a The arena to use for allocations.
-// @return An allocator that allocates memory from the arena.
-allocator arena_allocator(
-  arena* a
-) {
-// @>
+static allocator _make_simple_allocator(void) {
   return (allocator) {
-    .ctx = a,
-    .alloc = _arena_alloc,
-    .realloc = _arena_realloc,
-    .free = _arena_free,
+    .ctx = nil,
+    .alloc = _libc_alloc,
+    .realloc = _libc_realloc,
+    .free = _libc_free,
+    .reset = _libc_reset,
   };
 }
 
-#endif // USE_ALLOC_UTIL
+static allocator _make_tracking_allocator(tracking_allocator* tracker) {
+  return (allocator) {
+    .ctx = tracker,
+    .alloc = _tracked_alloc,
+    .realloc = _tracked_realloc,
+    .free = _tracked_free,
+    .reset = _tracking_allocator_reset,
+  };
+}
+
+static allocator _make_allocator_arena(arena* arena) {
+  if (arena->block_size < ARENA_MIN_BLOCK_SIZE) {
+    arena->block_size = ARENA_MIN_BLOCK_SIZE;
+  }
+
+  return (allocator) {
+    .ctx = arena,
+    .alloc = _arena_alloc,
+    .realloc = _arena_realloc,
+    .free = _arena_free,
+    .reset = _arena_reset,
+  };
+}
+
+#define _MAKE_ALLOCATOR_0() \
+    _make_simple_allocator()
+
+#define _MAKE_ALLOCATOR_1(arg) \
+    _Generic((arg), \
+        tracking_allocator*: _make_tracking_allocator, \
+        arena*: _make_allocator_arena \
+    )(arg)
+
+#define GET_MACRO(_0, _1, NAME, ...) NAME
+
+// <@
+// @name make_allocator
+// @kind macro
+// @desc Creates an allocator. If called with no arguments, it creates a simple allocator that uses malloc and free.
+// If called with a tracking_allocator pointer, it creates a tracking allocator.
+// If called with an arena pointer, it creates an arena allocator.
+// @param ... Optional argument: a pointer to a tracking_allocator or an arena.
+// @>
+#define make_allocator(...) \
+    GET_MACRO(_ __VA_OPT__(,) __VA_ARGS__, \
+              _MAKE_ALLOCATOR_1, \
+              _MAKE_ALLOCATOR_0) \
+    (__VA_ARGS__)
+
+
+#endif // USE_ALLOC_UTILS
 
 
 
-#ifdef USE_DEFER_UTIL
+#ifdef USE_DEFER_UTILS
 
 
 #if defined(__clangd__)
@@ -1014,7 +578,7 @@ allocator arena_allocator(
 // just the lsp and not the actual compiler, it's fine
 #define defer(code) code
 
-#elif defined(__GNUC__)
+#elif defined(__GNUC__) && !defined(__clang__) && !defined(__cplusplus)
 
 #define _CONCAT_INTERNAL(x, y) x##y
 #define _CONCAT(x, y) _CONCAT_INTERNAL(x, y)
@@ -1040,15 +604,15 @@ allocator arena_allocator(
 #else
 
 #define defer(...) \
-  _Static_assert(0, "defer is only supported with GCC that has nested functions support enabled")
+  static_assert(0, "defer is only supported with GCC that has nested functions support enabled")
 
 #endif
 
-#endif // USE_DEFER_UTIL
+#endif // USE_DEFER_UTILS
 
 
 
-#ifdef USE_STR_VIEW_UTIL
+#ifdef USE_STR_UTILS
 
 /*
 Taken from tsoding's nob.h
@@ -1362,212 +926,6 @@ bool str_view_starts_with(str_view sv, str_view expected_prefix) {
   return false;
 }
 
-#endif // USE_STR_VIEW_UTIL
-
-
-#ifdef USE_DYN_ARR_UTIL
-
-#ifdef USE_ALLOC_UTIL
-#define _DYN_ARR_ALLOC_FIELD allocator alloc;
-#else
-#define _DYN_ARR_ALLOC_FIELD
-#endif
-
-typedef struct {
-  void* data;
-  usz count;
-  usz capacity;
-
-#ifdef USE_ALLOC_UTIL
-  allocator alloc;
-#endif
-} _dyn_arr_base;
-
-// <@
-// @name dyn_arr
-// @kind macro
-// @desc Declares a dynamic array type for a given element type.
-// @param T The element type.
-// @example dyn_arr(int) numbers = {0};
-// @>
-#define dyn_arr(T) struct { \
-  T* data;                  \
-  usz count;                \
-  usz capacity;             \
-  _DYN_ARR_ALLOC_FIELD      \
-}
-
-#ifdef USE_ALLOC_UTIL
-
-void _dyn_arr_ensure_allocator(
-  _dyn_arr_base* arr
-) {
-  if (arr->alloc.alloc == nil) {
-    arr->alloc =
-      libc_allocator();
-  }
-}
-
-#endif
-
-void* _dyn_arr_resize(
-  _dyn_arr_base* arr,
-  usz elem_size,
-  usz new_capacity
-) {
-#ifdef USE_ALLOC_UTIL
-
-  _dyn_arr_ensure_allocator(
-    arr
-  );
-
-  return arr->alloc.realloc(
-    arr->alloc.ctx,
-    arr->data,
-    new_capacity *
-      elem_size
-  );
-
-#else
-
-  return realloc(
-    arr->data,
-    new_capacity *
-      elem_size
-  );
-
-#endif
-}
-
-bool _dyn_arr_push_impl(
-  _dyn_arr_base* arr,
-  void* value,
-  usz elem_size
-) {
-  if (arr->count >= arr->capacity) {
-    usz new_capacity =
-      arr->capacity > 0
-      ? _int_by_1_5(
-          arr->capacity
-        )
-      : 4;
-
-    void* new_data =
-      _dyn_arr_resize(
-        arr,
-        elem_size,
-        new_capacity
-      );
-
-    if (new_data == nil) {
-      return false;
-    }
-
-    arr->data = new_data;
-    arr->capacity =
-      new_capacity;
-  }
-
-  memcpy(
-    (u8*)arr->data +
-    arr->count *
-      elem_size,
-    value,
-    elem_size
-  );
-
-  arr->count += 1;
-
-  return true;
-}
-
-void _dyn_arr_free(
-  _dyn_arr_base* arr
-) {
-#ifdef USE_ALLOC_UTIL
-
-  _dyn_arr_ensure_allocator(
-    arr
-  );
-
-  if (arr->data != nil) {
-    arr->alloc.free(
-      arr->alloc.ctx,
-      arr->data
-    );
-  }
-
-#else
-
-  free(arr->data);
-
-#endif
-
-  arr->data = nil;
-  arr->count = 0;
-  arr->capacity = 0;
-}
-
-// <@
-// @name da_push
-// @kind macro
-// @desc Appends a value to the dynamic array, resizing if necessary.
-// @param arr Pointer to the dynamic array.
-// @param value The value to append.
-// @return true on success, false on allocation failure.
-// @>
-#define da_push(arr, value)              \
-  ({                                     \
-    typeof(*(arr)->data) _tmp = (value); \
-    _dyn_arr_push_impl(                  \
-      (_dyn_arr_base*)(arr),             \
-      &_tmp,                             \
-      sizeof(_tmp)                       \
-    );                                   \
-  })
-
-// <@
-// @name da_at
-// @kind macro
-// @desc Returns the element at the given index.
-// No bounds checking is performed.
-// @param arr Pointer to the dynamic array.
-// @param index The element index.
-// @>
-#define da_at(arr, index) \
-  ((arr)->data[(index)])
-
-// <@
-// @name da_last
-// @kind macro
-// @desc Returns the last element of the dynamic array.
-// The array must not be empty.
-// @param arr Pointer to the dynamic array.
-// @>
-#define da_last(arr) \
-  ((arr)->data[      \
-    (arr)->count - 1 \
-  ])
-
-// <@
-// @name da_free
-// @kind macro
-// @desc Frees the memory owned by the dynamic array and resets it to an empty state.
-// @param arr Pointer to the dynamic array.
-// @>
-#define da_free(arr)       \
-  _dyn_arr_free(           \
-    (_dyn_arr_base*)(arr)  \
-  )
-
-#endif // USE_DYN_ARR_UTIL
-
-
-
-#ifdef USE_STR_BUILDER_UTIL
-
-#include <string.h>
-
 // <@
 // @name str_builder
 // @kind type
@@ -1581,7 +939,7 @@ typedef struct {
   usz count;
   usz capacity;
 
-#ifdef USE_ALLOC_UTIL
+#ifdef USE_ALLOC_UTILS
   allocator alloc;
 #endif
 } str_builder;
@@ -1607,16 +965,35 @@ typedef struct {
   (int)(sb).count,  \
   (sb).data
 
-#ifdef USE_ALLOC_UTIL
+#ifdef USE_ALLOC_UTILS
 
-static void _str_builder_ensure_allocator(
-  str_builder* sb
-) {
+static void _str_builder_ensure_allocator(str_builder* sb) {
   if (sb->alloc.alloc == nil) {
-    sb->alloc =
-      libc_allocator();
+    sb->alloc = make_allocator();
   }
 }
+
+#define _str_builder_realloc(sb, new_capacity) \
+  sb->alloc.realloc(sb->alloc.ctx, sb->data, new_capacity)
+
+#define _str_builder_free(sb, ptr) \
+  do { \
+    if ((ptr) != nil) { \
+      sb->alloc.free(sb->alloc.ctx, (ptr)); \
+    } \
+  } while (0)
+
+#else
+
+static void _str_builder_ensure_allocator(str_builder* sb) {
+  (void)sb;
+}
+
+#define _str_builder_realloc(sb, new_capacity) \
+  realloc(sb->data, new_capacity)
+
+#define _str_builder_free(sb, ptr) \
+  free(ptr)
 
 #endif
 
@@ -1627,77 +1004,36 @@ static void _str_builder_ensure_allocator(
 // @param sb The string builder.
 // @param additional The number of additional bytes required.
 // @return true on success, false on allocation failure.
-bool str_builder_reserve(
-  str_builder* sb,
-  usz additional
-) {
+bool str_builder_reserve(str_builder* sb, usz additional) {
 // @>
-  usz required =
-    sb->count +
-    additional +
-    1;
+  usz required = sb->count + additional + 1;
 
-  if (
-    required <=
-    sb->capacity
-  ) {
+  if (required <= sb->capacity) {
     return true;
   }
 
-  usz new_capacity =
-    sb->capacity > 0
-    ? sb->capacity
-    : 64;
+  usz new_capacity = sb->capacity > 0 ? sb->capacity : 64;
 
-  while (
-    new_capacity <
-    required
-  ) {
-    usz next =
-      _int_by_1_5(
-        new_capacity
-      );
+  while (new_capacity < required) {
+    usz next = new_capacity * 2;
 
-    if (
-      next <=
-      new_capacity
-    ) {
+    if (next <= new_capacity) {
       return false;
     }
 
     new_capacity = next;
   }
 
-#ifdef USE_ALLOC_UTIL
+  _str_builder_ensure_allocator(sb);
 
-  _str_builder_ensure_allocator(
-    sb
-  );
-
-  char* new_data =
-    sb->alloc.realloc(
-      sb->alloc.ctx,
-      sb->data,
-      new_capacity
-    );
-
-#else
-
-  char* new_data =
-    realloc(
-      sb->data,
-      new_capacity
-    );
-
-#endif
+  char* new_data = _str_builder_realloc(sb, new_capacity);
 
   if (new_data == nil) {
     return false;
   }
 
   sb->data = new_data;
-  sb->capacity =
-    new_capacity;
+  sb->capacity = new_capacity;
 
   return true;
 }
@@ -1710,33 +1046,17 @@ bool str_builder_reserve(
 // @param data Pointer to the bytes to append.
 // @param size Number of bytes to append.
 // @return true on success, false on allocation failure.
-bool str_builder_append_bytes(
-  str_builder* sb,
-  const void* data,
-  usz size
-) {
+bool str_builder_append_bytes(str_builder* sb, const void* data, usz size) {
 // @>
-  if (
-    !str_builder_reserve(
-      sb,
-      size
-    )
-  ) {
+  if (!str_builder_reserve(sb, size)) {
     return false;
   }
 
-  memcpy(
-    sb->data +
-      sb->count,
-    data,
-    size
-  );
+  memcpy(sb->data + sb->count, data, size);
 
   sb->count += size;
 
-  sb->data[
-    sb->count
-  ] = '\0';
+  sb->data[sb->count] = '\0';
 
   return true;
 }
@@ -1748,16 +1068,9 @@ bool str_builder_append_bytes(
 // @param sb The string builder.
 // @param cstr The string to append.
 // @return true on success, false on allocation failure.
-bool str_builder_append_cstr(
-  str_builder* sb,
-  const char* cstr
-) {
+bool str_builder_append_cstr(str_builder* sb, const char* cstr) {
 // @>
-  return str_builder_append_bytes(
-    sb,
-    cstr,
-    strlen(cstr)
-  );
+  return str_builder_append_bytes(sb, cstr, strlen(cstr));
 }
 
 // <@
@@ -1767,29 +1080,14 @@ bool str_builder_append_cstr(
 // @param sb The destination string builder.
 // @param other The source string builder.
 // @return true on success, false on allocation failure.
-bool str_builder_append_sb(
-  str_builder* sb,
-  const str_builder* other
-) {
+bool str_builder_append_sb(str_builder* sb, const str_builder* other) {
 // @>
-  return str_builder_append_bytes(
-    sb,
-    other->data,
-    other->count
-  );
+  return str_builder_append_bytes(sb, other->data, other->count);
 }
 
-bool _str_builder_append_sb_value(
-  str_builder* sb,
-  str_builder other
-) {
-  return str_builder_append_sb(
-    sb,
-    &other
-  );
+bool _str_builder_append_sb_value(str_builder* sb, str_builder other) {
+  return str_builder_append_sb(sb, &other);
 }
-
-#ifdef USE_STR_VIEW_UTIL
 
 // <@
 // @name str_builder_append_sv
@@ -1798,16 +1096,9 @@ bool _str_builder_append_sb_value(
 // @param sb The destination string builder.
 // @param sv The string view to append.
 // @return true on success, false on allocation failure.
-bool str_builder_append_sv(
-  str_builder* sb,
-  str_view sv
-) {
+bool str_builder_append_sv(str_builder* sb, str_view sv) {
 // @>
-  return str_builder_append_bytes(
-    sb,
-    sv.data,
-    sv.count
-  );
+  return str_builder_append_bytes(sb, sv.data, sv.count);
 }
 
 // <@
@@ -1816,30 +1107,10 @@ bool str_builder_append_sv(
 // @desc Returns a string view referencing the contents of the string builder.
 // @param sb The string builder.
 // @return A str_view referencing the builder contents.
-str_view str_builder_view(
-  const str_builder* sb
-) {
+str_view str_builder_view(const str_builder* sb) {
 // @>
-  return str_view_from_parts(
-    sb->data
-      ? sb->data
-      : "",
-    sb->count
-  );
+  return str_view_from_parts(sb->data ? sb->data : "", sb->count);
 }
-
-#endif // USE_STR_VIEW_UTIL
-
-#ifdef USE_STR_VIEW_UTIL
-
-#define _STR_BUILDER_APPEND_SV_TYPES \
-  , str_view: str_builder_append_sv
-
-#else
-
-#define _STR_BUILDER_APPEND_SV_TYPES
-
-#endif
 
 // <@
 // @name str_builder_append
@@ -1849,19 +1120,14 @@ str_view str_builder_view(
 // @param sb The destination string builder.
 // @param data The value to append.
 // @>
-#define str_builder_append(sb, data)       \
-  _Generic((data),                         \
-    char*:                                 \
-      str_builder_append_cstr,             \
-    const char*:                           \
-      str_builder_append_cstr,             \
-    str_builder:                           \
-      _str_builder_append_sb_value,        \
-    str_builder*:                          \
-      str_builder_append_sb,               \
-    const str_builder*:                    \
-      str_builder_append_sb                \
-    _STR_BUILDER_APPEND_SV_TYPES           \
+#define str_builder_append(sb, data)           \
+  _Generic((data),                             \
+    char*: str_builder_append_cstr,            \
+    const char*: str_builder_append_cstr,      \
+    str_builder: _str_builder_append_sb_value, \
+    str_builder*: str_builder_append_sb,       \
+    const str_builder*: str_builder_append_sb, \
+    str_view: str_builder_append_sv            \
   )(sb, data)
 
 // <@
@@ -1869,9 +1135,7 @@ str_view str_builder_view(
 // @kind function
 // @desc Clears the contents of the string builder without freeing its memory.
 // @param sb The string builder to clear.
-void str_builder_clear(
-  str_builder* sb
-) {
+void str_builder_clear(str_builder* sb) {
 // @>
   sb->count = 0;
 
@@ -1885,43 +1149,236 @@ void str_builder_clear(
 // @kind function
 // @desc Frees the memory owned by the string builder and resets it to an empty state.
 // @param sb The string builder to free.
-void str_builder_free(
-  str_builder* sb
-) {
+void str_builder_free(str_builder* sb) {
 // @>
-#ifdef USE_ALLOC_UTIL
+  _str_builder_ensure_allocator(sb);
 
-  _str_builder_ensure_allocator(
-    sb
-  );
-
-  if (sb->data != nil) {
-    sb->alloc.free(
-      sb->alloc.ctx,
-      sb->data
-    );
-  }
-
-#else
-
-  free(sb->data);
-
-#endif
+  _str_builder_free(sb, sb->data);
 
   sb->data = nil;
   sb->count = 0;
   sb->capacity = 0;
 }
 
-#endif // USE_STR_BUILDER_UTIL
+#endif // USE_STR_UTILS
 
 
 
-#ifdef USE_FILE_UTIL
+#ifdef USE_DA_UTILS
+
+#include <string.h>
+
+#ifdef USE_ALLOC_UTILS
+#define _DA_ALLOC_FIELD allocator alloc;
+#else
+#define _DA_ALLOC_FIELD
+#endif
+
+typedef struct {
+  void* data;
+  usz count;
+  usz capacity;
+
+#ifdef USE_ALLOC_UTILS
+  allocator alloc;
+#endif
+} _da_base;
+
+// <@
+// @name da
+// @kind macro
+// @desc Declares a dynamic array type for a given element type.
+// @param T The element type.
+// @example
+// typedef da(int) int_array;
+// int_array arr = {0}; // Initialize an empty dynamic array of integers.
+// da_append(&arr, 42); // Append an integer to the array.
+// @>
+#define da(T) struct { \
+  T* data;             \
+  usz count;           \
+  usz capacity;        \
+  _DA_ALLOC_FIELD      \
+}
+
+#ifdef USE_ALLOC_UTILS
+
+void _da_base_ensure_allocator(_da_base* arr) {
+  if (arr->alloc.alloc == nil) {
+    arr->alloc = make_allocator();
+  }
+}
+
+#define _da_base_realloc(arr, elem_size, new_capacity) \
+  arr->alloc.realloc(arr->alloc.ctx, arr->data, new_capacity * elem_size)
+
+#define _da_base_free(arr, ptr) \
+  do { \
+    if ((ptr) != nil) { \
+      arr->alloc.free(arr->alloc.ctx, (ptr)); \
+    } \
+  } while (0)
+
+#else
+
+void _da_base_ensure_allocator(_da_base* arr) {
+  (void)arr;
+}
+
+#define _da_base_realloc(arr, elem_size, new_capacity) \
+  realloc(arr->data, new_capacity * elem_size)
+
+#define _da_base_free(arr, ptr) \
+  free(ptr)
+
+#endif
+
+void* _da_base_resize(_da_base* arr, usz elem_size, usz new_capacity) {
+  _da_base_ensure_allocator(arr);
+
+  return _da_base_realloc(arr, elem_size, new_capacity);
+}
+
+bool _da_base_append_impl(_da_base* arr, void* value, usz elem_size) {
+  if (arr->count >= arr->capacity) {
+    usz new_capacity = arr->capacity > 0 ? arr->capacity * 2 : 4;
+
+    void* new_data = _da_base_resize(arr, elem_size, new_capacity);
+
+    if (new_data == nil) {
+      return false;
+    }
+
+    arr->data = new_data;
+    arr->capacity = new_capacity;
+  }
+
+  memcpy((u8*)arr->data + arr->count * elem_size, value, elem_size);
+
+  arr->count += 1;
+
+  return true;
+}
+
+void _da_free(_da_base* arr) {
+  _da_base_ensure_allocator(arr);
+
+  _da_base_free(arr, arr->data);
+
+  arr->data = nil;
+  arr->count = 0;
+  arr->capacity = 0;
+}
+
+// <@
+// @name da_append
+// @kind macro
+// @desc Appends a value to the dynamic array, resizing if necessary.
+// @param arr Pointer to the dynamic array.
+// @param value The value to append.
+// @return true on success, false on allocation failure.
+// @>
+#define da_append(arr, value)            \
+  ({                                     \
+    typeof(*(arr)->data) _tmp = (value); \
+    _da_base_append_impl(                \
+      (_da_base*)(arr),                  \
+      &_tmp,                             \
+      sizeof(_tmp)                       \
+    );                                   \
+  })
+
+// <@
+// @name da_at
+// @kind macro
+// @desc Returns the element at the given index.
+// No bounds checking is performed.
+// @param arr Pointer to the dynamic array.
+// @param index The element index.
+// @>
+#define da_at(arr, index) ((arr)->data[(index)])
+
+// <@
+// @name da_last
+// @kind macro
+// @desc Returns the last element of the dynamic array.
+// The array must not be empty.
+// @param arr Pointer to the dynamic array.
+// @>
+#define da_last(arr) ((arr)->data[(arr)->count - 1])
+
+// <@
+// @name da_free
+// @kind macro
+// @desc Frees the memory owned by the dynamic array and resets it to an empty state.
+// @param arr Pointer to the dynamic array.
+// @>
+#define da_free(arr) _da_base_free((_da_base*)(arr))
+
+#define _DA_FOREACH_1(arr) \
+  _DA_FOREACH_2(arr, it)
+
+#define _DA_FOREACH_2(arr, it)                                     \
+  for (usz _i = 0; _i < (arr)->count; ++_i)                        \
+    for (typeof(*(arr)->data) it = (arr)->data[_i], *_once = &it;  \
+         _once != nil;                                             \
+         _once = nil)
+
+#define _DA_FOREACH_GET(_1, _2, NAME, ...) NAME
+
+// <@
+// @name da_foreach
+// @kind macro
+// @desc Iterates over all elements in a dynamic array.
+// @param arr Pointer to the dynamic array.
+// @param it Optional variable name for the current element. Defaults to 'it' if not provided.
+// @example
+// da_foreach(&arr) {
+//   printf("%d\n", it);
+// }
+// da_foreach(&arr, x) {
+//   printf("%d\n", x);
+// }
+// @>
+#define da_foreach(...) \
+  _DA_FOREACH_GET(__VA_ARGS__, _DA_FOREACH_2, _DA_FOREACH_1)(__VA_ARGS__)
+
+#define _DA_FOREACH_I_1(arr) \
+  _DA_FOREACH_I_3(arr, idx, it)
+
+#define _DA_FOREACH_I_3(arr, i, it)                                \
+  for (usz i = 0; i < (arr)->count; ++i)                           \
+    for (typeof(*(arr)->data) it = (arr)->data[i], *_once = &it;   \
+         _once != nil;                                             \
+         _once = nil)
+
+#define _DA_FOREACH_I_GET(_1, _2, _3, NAME, ...) NAME
+
+// <@
+// @name da_foreach_i
+// @kind macro
+// @desc Iterates over all elements in the dynamic array, exposing the index
+// and a copy of the element.
+// @param arr Pointer to the dynamic array.
+// @param i Optional index variable name. Defaults to 'idx' if not provided.
+// @param it Optional variable name. Defaults to 'it' if not provided.
+// @example
+// da_foreach_i(&arr) {
+//   printf("%zu: %d\n", i, it);
+// }
+// da_foreach_i(&arr, i, x) {
+//   printf("%zu: %d\n", i, x);
+// }
+// @>
+#define da_foreach_i(...) \
+  _DA_FOREACH_I_GET(__VA_ARGS__, _DA_FOREACH_I_3, _, _DA_FOREACH_I_1)(__VA_ARGS__)
+
+#endif // USE_DA_UTILS
+
+
+#ifdef USE_FILE_UTILS
 
 #include <stdio.h>
-
-#ifdef USE_STR_BUILDER_UTIL
 
 // <@
 // @name read_entire_file
@@ -1931,10 +1388,7 @@ void str_builder_free(
 // @param path Path to the file.
 // @param sb Destination string builder.
 // @return true on success, false on failure.
-bool read_entire_file(
-  const char* path,
-  str_builder* sb
-) {
+bool read_entire_file(const char* path, str_builder* sb) {
 // @>
   FILE* f = fopen(path, "rb");
 
@@ -1958,23 +1412,12 @@ bool read_entire_file(
 
   str_builder_clear(sb);
 
-  if (
-    !str_builder_reserve(
-      sb,
-      (usz)size
-    )
-  ) {
+  if (!str_builder_reserve(sb, (usz)size)) {
     fclose(f);
     return false;
   }
 
-  usz read =
-    fread(
-      sb->data,
-      1,
-      (usz)size,
-      f
-    );
+  usz read = fread(sb->data, 1, (usz)size, f);
 
   fclose(f);
 
@@ -1988,8 +1431,6 @@ bool read_entire_file(
   return true;
 }
 
-#endif // USE_STR_BUILDER_UTIL
-
 // <@
 // @name write_entire_file_cstr
 // @kind function
@@ -1997,10 +1438,7 @@ bool read_entire_file(
 // @param path Path to the file.
 // @param data The string to write.
 // @return true on success, false on failure.
-bool write_entire_file_cstr(
-  const char* path,
-  const char* data
-) {
+bool write_entire_file_cstr(const char* path, const char* data) {
 // @>
   FILE* f = fopen(path, "wb");
 
@@ -2010,20 +1448,12 @@ bool write_entire_file_cstr(
 
   usz size = strlen(data);
 
-  usz written =
-    fwrite(
-      data,
-      1,
-      size,
-      f
-    );
+  usz written = fwrite(data, 1, size, f);
 
   fclose(f);
 
   return written == size;
 }
-
-#ifdef USE_STR_VIEW_UTIL
 
 // <@
 // @name write_entire_file_sv
@@ -2032,10 +1462,7 @@ bool write_entire_file_cstr(
 // @param path Path to the file.
 // @param sv The string view to write.
 // @return true on success, false on failure.
-bool write_entire_file_sv(
-  const char* path,
-  str_view sv
-) {
+bool write_entire_file_sv(const char* path, str_view sv) {
 // @>
   FILE* f = fopen(path, "wb");
 
@@ -2043,13 +1470,7 @@ bool write_entire_file_sv(
     return false;
   }
 
-  usz written =
-    fwrite(
-      sv.data,
-      1,
-      sv.count,
-      f
-    );
+  usz written = fwrite(sv.data, 1, sv.count, f);
 
   fclose(f);
 
@@ -2064,10 +1485,7 @@ bool write_entire_file_sv(
 // @param path Path to the file.
 // @param sv Pointer to the string view to write.
 // @return true on success, false on failure.
-bool write_entire_file_sv_ptr(
-  const char* path,
-  str_view* sv
-) {
+bool write_entire_file_sv_ptr(const char* path, str_view* sv) {
 // @>
   if (sv == nil) {
     return false;
@@ -2079,10 +1497,6 @@ bool write_entire_file_sv_ptr(
   );
 }
 
-#endif // USE_STR_VIEW_UTIL
-
-#ifdef USE_STR_BUILDER_UTIL
-
 // <@
 // @name write_entire_file_sb
 // @kind function
@@ -2090,10 +1504,7 @@ bool write_entire_file_sv_ptr(
 // @param path Path to the file.
 // @param sb The string builder to write.
 // @return true on success, false on failure.
-bool write_entire_file_sb(
-  const char* path,
-  str_builder sb
-) {
+bool write_entire_file_sb(const char* path, str_builder sb) {
 // @>
   FILE* f = fopen(path, "wb");
 
@@ -2101,13 +1512,7 @@ bool write_entire_file_sb(
     return false;
   }
 
-  usz written =
-    fwrite(
-      sb.data,
-      1,
-      sb.count,
-      f
-    );
+  usz written = fwrite(sb.data, 1, sb.count, f);
 
   fclose(f);
 
@@ -2121,40 +1526,14 @@ bool write_entire_file_sb(
 // @param path Path to the file.
 // @param sb Pointer to the string builder to write.
 // @return true on success, false on failure.
-bool write_entire_file_sb_ptr(
-  const char* path,
-  str_builder* sb
-) {
+bool write_entire_file_sb_ptr(const char* path, str_builder* sb) {
 // @>
   if (sb == nil) {
     return false;
   }
 
-  return write_entire_file_sb(
-    path,
-    *sb
-  );
+  return write_entire_file_sb(path, *sb);
 }
-
-#endif // USE_STR_BUILDER_UTIL
-
-#ifdef USE_STR_VIEW_UTIL
-#define _WRITE_FILE_SV_TYPES \
-  , str_view: write_entire_file_sv \
-  , str_view*: write_entire_file_sv_ptr \
-  , const str_view*: write_entire_file_sv_ptr
-#else
-#define _WRITE_FILE_SV_TYPES
-#endif
-
-#ifdef USE_STR_BUILDER_UTIL
-#define _WRITE_FILE_SB_TYPES \
-  , str_builder: write_entire_file_sb \
-  , str_builder*: write_entire_file_sb_ptr \
-  , const str_builder*: write_entire_file_sb_ptr
-#else
-#define _WRITE_FILE_SB_TYPES
-#endif
 
 // <@
 // @name write_entire_file
@@ -2164,14 +1543,18 @@ bool write_entire_file_sb_ptr(
 // @param path Path to the file.
 // @param data The data to write.
 // @>
-#define write_entire_file(path, data)   \
-  _Generic((data),                      \
-    char*: write_entire_file_cstr,      \
-    const char*: write_entire_file_cstr \
-    _WRITE_FILE_SV_TYPES                 \
-    _WRITE_FILE_SB_TYPES                 \
+#define write_entire_file(path, data)            \
+  _Generic((data),                               \
+    char*: write_entire_file_cstr,               \
+    const char*: write_entire_file_cstr,         \
+    str_view: write_entire_file_sv,              \
+    str_view*: write_entire_file_sv_ptr,         \
+    const str_view*: write_entire_file_sv_ptr,   \
+    str_builder: write_entire_file_sb,           \
+    str_builder*: write_entire_file_sb_ptr,      \
+    const str_builder*: write_entire_file_sb_ptr \
   )(path, data)
 
-#endif // USE_FILE_UTIL
+#endif // USE_FILE_UTILS
 
 #endif // _UTILS_C
