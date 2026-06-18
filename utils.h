@@ -61,12 +61,19 @@ typedef ptrdiff_t isz;
 #define USE_STR_UTILS
 #define USE_DA_UTILS
 #define USE_FILE_UTILS
+#define USE_FLAGS_UTILS
 #endif
 
 
 // Handle dependencies between utilities.
+//
 #ifdef USE_FILE_UTILS
 #define USE_STR_UTILS
+#endif
+
+#ifdef USE_FLAGS_UTILS
+#define USE_STR_UTILS
+#define USE_DA_UTILS
 #endif
 
 #ifdef USE_ALLOC_UTILS
@@ -769,11 +776,14 @@ str_view str_view_trim(str_view sv);
 str_view str_view_trim_left(str_view sv);
 str_view str_view_trim_right(str_view sv);
 bool str_view_eq(str_view a, str_view b);
+bool str_view_eq_cstr(str_view sv, const char *cstr);
 bool str_view_ends_with_cstr(str_view sv, const char *cstr);
 bool str_view_ends_with(str_view sv, str_view suffix);
 bool str_view_starts_with(str_view sv, str_view prefix);
+bool str_view_starts_with_cstr(str_view sv, const char *cstr);
 str_view str_view_from_cstr(const char *cstr);
 str_view str_view_from_parts(const char *data, size_t count);
+int str_view_find(str_view sv, char c);
 
 // <@
 // @name str_view_chop_while
@@ -985,6 +995,18 @@ bool str_view_eq(str_view a, str_view b) {
 }
 
 // <@
+// @name str_view_eq_cstr
+// @kind function
+// @desc Compares a string view with a null-terminated C string for equality.
+// @param sv The string view.
+// @param cstr The null-terminated string.
+// @return true if the string view and C string contain the same bytes, false otherwise.
+bool str_view_eq_cstr(str_view sv, const char *cstr) {
+  // @>
+  return str_view_eq(sv, str_view_from_cstr(cstr));
+}
+
+// <@
 // @name str_view_ends_with_cstr
 // @kind function
 // @desc Checks whether a string view ends with a null-terminated C string.
@@ -1030,6 +1052,35 @@ bool str_view_starts_with(str_view sv, str_view expected_prefix) {
   }
 
   return false;
+}
+
+// <@
+// @name str_view_starts_with_cstr
+// @kind function
+// @desc Checks whether a string view starts with a null-terminated C string.
+// @param sv The string view to check.
+// @param cstr The prefix string.
+// @return true if sv starts with cstr, false otherwise.
+bool str_view_starts_with_cstr(str_view sv, const char *cstr) {
+// @>
+  return str_view_starts_with(sv, str_view_from_cstr(cstr));
+}
+
+// <@
+// @name str_view_find
+// @kind function
+// @desc Finds the first occurrence of a character in a string view.
+// @param sv The string view to search.
+// @param c The character to find.
+// @return The index of the first occurrence of c in sv, or -1 if not found.
+int str_view_find(str_view sv, char c) {
+// @>
+  for (size_t i = 0; i < sv.count; ++i) {
+    if (sv.data[i] == c) {
+      return (int)i;
+    }
+  }
+  return -1;
 }
 
 // <@
@@ -1316,10 +1367,10 @@ void _da_base_ensure_allocator(_da_base* arr) {
 #define _da_base_realloc(arr, elem_size, new_capacity) \
   arr->alloc.realloc(arr->alloc.ctx, arr->data, new_capacity * elem_size)
 
-#define _da_base_free(arr, ptr) \
+#define _da_base_free(arr) \
   do { \
-    if ((ptr) != nil) { \
-      arr->alloc.free(arr->alloc.ctx, (ptr)); \
+    if ((arr)->data != nil) { \
+      (arr)->alloc.free((arr)->alloc.ctx, (arr)->data); \
     } \
   } while (0)
 
@@ -1332,8 +1383,8 @@ void _da_base_ensure_allocator(_da_base* arr) {
 #define _da_base_realloc(arr, elem_size, new_capacity) \
   realloc(arr->data, new_capacity * elem_size)
 
-#define _da_base_free(arr, ptr) \
-  free(ptr)
+#define _da_base_free(arr) \
+  free((arr)->data)
 
 #endif
 
@@ -1367,7 +1418,7 @@ bool _da_base_append_impl(_da_base* arr, void* value, usz elem_size) {
 void _da_free(_da_base* arr) {
   _da_base_ensure_allocator(arr);
 
-  _da_base_free(arr, arr->data);
+  _da_base_free(arr);
 
   arr->data = nil;
   arr->count = 0;
@@ -1417,7 +1468,7 @@ void _da_free(_da_base* arr) {
 // @desc Frees the memory owned by the dynamic array and resets it to an empty state.
 // @param arr Pointer to the dynamic array.
 // @>
-#define da_free(arr) _da_base_free((_da_base*)(arr))
+#define da_free(arr) _da_free((_da_base*)(arr))
 
 #define _DA_FOREACH_1(arr) \
   _DA_FOREACH_2(arr, it)
@@ -1660,5 +1711,443 @@ bool write_entire_file_sb_ptr(const char* path, str_builder* sb) {
   )(path, data)
 
 #endif // USE_FILE_UTILS
+
+
+#ifdef USE_FLAGS_UTILS
+
+#include <limits.h>
+#include <assert.h>
+
+typedef enum flag_type {
+  BOOL,
+  STRING,
+  NUMBER,
+} flag_type;
+
+typedef struct {
+  const char* name;
+  const char* desc;
+  flag_type type;
+  union {
+    bool bool_value;
+    str_view string_value;
+    int number_value;
+  } value;
+  bool is_set;
+} flag;
+
+#define get_flag(pvalue) ((flag*)((char*)(pvalue) - offsetof(flag, value)))
+#define flag_is_set(pvalue) (get_flag(pvalue)->is_set)
+#define flag_name(pvalue) (get_flag(pvalue)->name)
+#define flag_desc(pvalue) (get_flag(pvalue)->desc)
+
+#ifndef FLAGS_MAX_FLAGS
+#define FLAGS_MAX_FLAGS 64
+#endif
+
+static_assert(FLAGS_MAX_FLAGS > 0, "FLAGS_MAX_FLAGS must be greater than 0");
+
+typedef struct flags {
+  const char* positional_args_req;
+
+  flag flags[FLAGS_MAX_FLAGS];
+  size_t flags_count;
+
+  da(str_view) positional_args;
+
+  bool got_help;
+
+  bool _parsed;
+  bool failed_adding;
+
+#ifdef USE_ALLOC_UTILS
+  allocator alloc;
+#endif
+} flags;
+
+#define add_flag(a, name, description, def) \
+  _Generic((def),                           \
+    char*: _add_flag_string,                \
+    const char*: _add_flag_string,          \
+    int: _add_flag_int,                     \
+    bool: _add_flag_bool                    \
+  )(a, name, description, def)
+
+static void* _add_flag(flags* ar, const char* name, const char* description, flag_type type) {
+  if (ar->flags_count >= FLAGS_MAX_FLAGS) {
+    fprintf(
+      stderr,
+      "Maximum number of flaguments exceeded (%d). "
+      "#define FLAGS_MAX_FLAGS before including flags.h to increase this limit.\n",
+      FLAGS_MAX_FLAGS
+    );
+    ar->failed_adding = true;
+    return nullptr;
+  }
+
+  if (ar->_parsed) {
+    fprintf(stderr, "Cannot add flaguments after parsing\n");
+    ar->failed_adding = true;
+    return nullptr;
+  }
+
+  if (name == nullptr || description == nullptr) {
+    fprintf(stderr, "flagument name and/or description cannot be null\n");
+    ar->failed_adding = true;
+    return nullptr;
+  }
+
+  for (const char* p = name; *p != '\0'; p++) {
+    if (*p == '=') {
+      fprintf(stderr, "flagument name cannot contain '=': %s\n", name);
+      ar->failed_adding = true;
+      return nullptr;
+    }
+  }
+
+  if (strcmp(name, "h") == 0) {
+    fprintf(stderr, "'-h' is reserved for help\n");
+    ar->failed_adding = true;
+    return nullptr;
+  }
+
+  for (size_t i = 0; i < ar->flags_count; i++) {
+    if (strcmp(ar->flags[i].name, name) == 0) {
+      fprintf(stderr, "Duplicate flagument name: %s\n", name);
+      ar->failed_adding = true;
+      return nullptr;
+    }
+  }
+
+  flag* flag = &ar->flags[ar->flags_count];
+  flag->name = name;
+  flag->desc = description;
+  flag->type = type;
+  flag->is_set = false;
+  ar->flags_count += 1;
+  return &ar->flags[ar->flags_count - 1].value;
+}
+
+const char** _add_flag_string(flags* a, const char* name, const char* description, const char* def) {
+  if (def == nullptr) {
+    def = "";
+  }
+  void* got = _add_flag(a, name, description, STRING);
+  if (!got) {
+    return nullptr;
+  }
+  a->flags[a->flags_count - 1].value.string_value = str_view_from_cstr(def);
+  return (const char**)got;
+}
+
+int* _add_flag_int(flags* a, const char* name, const char* description, int def) {
+  void* got = _add_flag(a, name, description, NUMBER);
+  if (!got) {
+    return nullptr;
+  }
+  a->flags[a->flags_count - 1].value.number_value = def;
+  return (int*)got;
+}
+
+bool* _add_flag_bool(flags* a, const char* name, const char* description, bool def) {
+  void* got = _add_flag(a, name, description, BOOL);
+  if (!got) {
+    return nullptr;
+  }
+  a->flags[a->flags_count - 1].value.bool_value = def;
+  return (bool*)got;
+}
+
+static size_t _null_term_array_len(const void** arr) {
+  size_t len = 0;
+  while (arr[len] != nullptr) {
+    len += 1;
+  }
+  return len;
+}
+
+void flags_reset(flags* a) {
+  a->flags_count = 0;
+
+  da_free(&a->positional_args);
+
+  a->got_help = false;
+
+  a->_parsed = false;
+}
+
+static bool _is_flag(const str_view flag) {
+  return flag.count > 0 && flag.data[0] == '-';
+}
+
+static bool _str_startswith(const char* str, const char* prefix) {
+  size_t str_len = strlen(str);
+  size_t prefix_len = strlen(prefix);
+  return str_len >= prefix_len && strncmp(str, prefix, prefix_len) == 0;
+}
+
+static bool _add_positional_arg(flags* a, const str_view flag) {
+#ifdef USE_ALLOC_UTILS
+  if (a->positional_args.alloc.alloc == nil) {
+    if (a->alloc.alloc == nil) {
+      a->alloc = make_allocator();
+    }
+    a->positional_args.alloc = a->alloc;
+  }
+#endif
+  return da_append(&a->positional_args, flag);
+}
+
+static bool _parse_int(str_view sv, int *out) {
+  if (sv.count == 0) {
+    return false;
+  }
+
+  bool negative = false;
+  size_t i = 0;
+
+  if (sv.data[0] == '-') {
+    negative = true;
+    i = 1;
+    if (i == sv.count) {
+      return false;
+    }
+  }
+
+  long value = 0;
+
+  for (; i < sv.count; i++) {
+    char c = sv.data[i];
+    if (c < '0' || c > '9') {
+      return false;
+    }
+
+    value = value * 10 + (c - '0');
+
+    if ((!negative && value > INT_MAX) || (negative && -value < INT_MIN)) {
+      return false;
+    }
+  }
+
+  *out = negative ? -(int)value : (int)value;
+  return true;
+}
+
+static bool _set_flag_value(flags* a, flag* flag, const str_view sv) {
+  if (flag->is_set) {
+    fprintf(stderr, "flagument '%s' specified multiple times\n", flag->name);
+    return false;
+  }
+
+  switch (flag->type) {
+    case BOOL: {
+      if (sv.count > 0) {
+        fprintf(stderr, "Boolean flagument '%s' does not take a value\n", flag->name);
+        return false;
+      }
+
+      flag->value.bool_value = true;
+      break;
+    }
+    case STRING: {
+      flag->value.string_value = sv;
+      break;
+    }
+    case NUMBER: {
+      int value;
+      if (!_parse_int(sv, &value)) {
+        fprintf(stderr, "Invalid integer value for flagument '%s': '" sfmt "'\n", flag->name, sfmtarg(sv));
+        return false;
+      }
+
+      flag->value.number_value = (int)value;
+      break;
+    }
+    default: {
+      fprintf(stderr, "Unknown flagument type for '%s'\n", flag->name);
+      return false;
+    }
+  }
+
+  flag->is_set = true;
+
+  return true;
+}
+
+void flags_print_help(flags* a, const char* prog_name) {
+  printf("Usage: %s [options]", prog_name);
+  if (a->positional_args_req) {
+    if (strcmp(a->positional_args_req, "+") == 0) {
+      printf(" <flag1> [flag2] ...");
+    } else if (strcmp(a->positional_args_req, "?") == 0) {
+      printf(" [flag]");
+    } else if (strcmp(a->positional_args_req, "*") == 0) {
+      printf(" [flag1] [flag2] ...");
+    } else {
+      printf(" ");
+      int expected = atoi(a->positional_args_req);
+      for (long j = 0; j < expected; j++) {
+        printf("<flag%ld> ", j + 1);
+      }
+    }
+  }
+
+  printf("\n");
+
+  if (a->flags_count > 0) {
+    printf("\nOptions:\n");
+
+    size_t max_name_len = 0;
+    for (size_t j = 0; j < a->flags_count; j++) {
+      size_t len = strlen(a->flags[j].name);
+      if (len > max_name_len) {
+        max_name_len = len;
+      }
+    }
+
+    for (size_t j = 0; j < a->flags_count; j++) {
+      flag* flag = &a->flags[j];
+      printf("  -%-*s  %s", (int)max_name_len, flag->name, flag->desc);
+      switch (flag->type) {
+        case STRING:
+          if (flag->value.string_value.count > 0) {
+            printf(" (default: " sfmt ")", sfmtarg(flag->value.string_value));
+          }
+          break;
+        case NUMBER:
+          printf(" (default: %d)", flag->value.number_value);
+          break;
+        default:
+          break;
+      }
+      printf("\n");
+    }
+  }
+}
+
+bool flags_parse(flags* a, int flagc, char** flagv) {
+  if (!a->positional_args_req) {
+  } else if (strcmp(a->positional_args_req, "+") == 0) {
+  } else if (strcmp(a->positional_args_req, "?") == 0) {
+  } else if (strcmp(a->positional_args_req, "*") == 0) {
+  } else {
+    int expected = atoi(a->positional_args_req);
+    if (expected < 0) {
+      fprintf(stderr, "Invalid positional_args_req: %s\n", a->positional_args_req);
+      return false;
+    }
+  }
+
+  for (int i = 0; i < flagc; i++) {
+    if (strcmp(flagv[i], "-h") == 0) {
+      a->got_help = true;
+      return true;
+    }
+  }
+
+  for (int i = 1; i < flagc; i++) {
+    str_view got = str_view_from_cstr(flagv[i]);
+    if (!_is_flag(got)) {
+      if (!_add_positional_arg(a, got)) {
+        return false;
+      }
+      continue;
+    }
+
+    // skip the leading '-'
+    str_view_chop_left(&got, 1);
+    
+    bool found = false;
+    for (size_t j = 0; j < a->flags_count; j++) {
+      flag* flag = &a->flags[j];
+      // -flag value syntax
+      if (str_view_eq_cstr(got, flag->name)) {
+        found = true;
+        str_view value = {0};
+
+        if (flag->type != BOOL) {
+          if (i + 1 >= flagc) {
+            fprintf(stderr, "flagument '" sfmt "' requires a value\n", sfmtarg(got));
+            return false;
+          }
+
+          value = str_view_from_cstr(flagv[i + 1]);
+          i += 1;
+        }
+
+        if (!_set_flag_value(a, &a->flags[j], value)) {
+          return false;
+        }
+        break;
+      }
+
+      size_t candidate_len = strlen(flag->name);
+      if (!str_view_starts_with_cstr(got, flag->name)) {
+        continue;
+      }
+
+      str_view suffix = got;
+      str_view_chop_left(&suffix, candidate_len);
+
+      if (suffix.count == 0 || suffix.data[0] != '=') {
+        continue;
+      }
+
+      // -flag=value syntax
+      found = true;
+      str_view value = suffix;
+      str_view_chop_left(&value, 1);
+
+      if (!_set_flag_value(a, &a->flags[j], value)) {
+        return false;
+      }
+    }
+
+    if (!found) {
+      int equal_sign = str_view_find(got, '=');
+
+      if (equal_sign != -1) {
+        str_view flag_name = got;
+        flag_name.count = (size_t)equal_sign;
+
+        fprintf(stderr, "Unknown flagument: " sfmt "\n", sfmtarg(flag_name));
+      } else {
+        fprintf(stderr, "Unknown flagument: " sfmt "\n", sfmtarg(got));
+      }
+    }
+  }
+
+  if (!a->positional_args_req) {
+    // unspecified, assume 0
+    if (a->positional_args.count > 0) {
+      fprintf(stderr, "Expected no positional flaguments, got %zu\n", a->positional_args.count);
+      return false;
+    }
+  } else if (strcmp(a->positional_args_req, "+") == 0) {
+    if (a->positional_args.count == 0) {
+      fprintf(stderr, "Expected at least one positional flagument\n");
+      return false;
+    }
+  } else if (strcmp(a->positional_args_req, "?") == 0) {
+    if (a->positional_args.count > 1) {
+      fprintf(stderr, "Expected at most one positional flagument\n");
+      return false;
+    }
+  } else if (strcmp(a->positional_args_req, "*") == 0) {
+    // any number of positional flaguments is allowed
+  } else {
+    // expected to be a number
+    int expected = atoi(a->positional_args_req);
+    if (a->positional_args.count != (size_t)expected) {
+      fprintf(stderr, "Expected %d positional flaguments, got %zu\n", expected, a->positional_args.count);
+      return false;
+    }
+  }
+
+  a->_parsed = true;
+  return true;
+}
+
+#endif // USE_FLAGS_UTILS
 
 #endif // _UTILS_C
