@@ -110,7 +110,7 @@ typedef ptrdiff_t isz;
 #define I64_MIN INT64_MIN
 #define I64_MAX INT64_MAX
 
-#define nil NULL
+#define nil nullptr
 
 #define TODO(message) assert(0 && "TODO:" message)
 
@@ -1381,116 +1381,116 @@ typedef struct flags {
     bool: _add_flag_bool                    \
   )(a, name, description, def)
 
-static void* _add_flag(flags* ar, const char* name, const char* description, flag_type type) {
-  if (ar->flags_count >= FLAGS_MAX_FLAGS) {
+static void* _add_flag(flags* f, const char* name, const char* description, flag_type type) {
+  if (f->flags_count >= FLAGS_MAX_FLAGS) {
     fprintf(
       stderr,
-      "Maximum number of flaguments exceeded (%d). "
+      "Maximum number of arguments exceeded (%d). "
       "#define FLAGS_MAX_FLAGS before including flags.h to increase this limit.\n",
       FLAGS_MAX_FLAGS
     );
-    ar->failed_adding = true;
-    return nullptr;
+    f->failed_adding = true;
+    return nil;
   }
 
-  if (ar->_parsed) {
-    fprintf(stderr, "Cannot add flaguments after parsing\n");
-    ar->failed_adding = true;
-    return nullptr;
+  if (f->_parsed) {
+    fprintf(stderr, "Cannot add arguments after parsing\n");
+    f->failed_adding = true;
+    return nil;
   }
 
-  if (name == nullptr || description == nullptr) {
-    fprintf(stderr, "flagument name and/or description cannot be null\n");
-    ar->failed_adding = true;
-    return nullptr;
+  if (name == nil || description == nullptr) {
+    fprintf(stderr, "argument name and/or description cannot be null\n");
+    f->failed_adding = true;
+    return nil;
   }
 
   for (const char* p = name; *p != '\0'; p++) {
     if (*p == '=') {
-      fprintf(stderr, "flagument name cannot contain '=': %s\n", name);
-      ar->failed_adding = true;
-      return nullptr;
+      fprintf(stderr, "argument name cannot contain '=': %s\n", name);
+      f->failed_adding = true;
+      return nil;
     }
   }
 
   if (strcmp(name, "h") == 0) {
     fprintf(stderr, "'-h' is reserved for help\n");
-    ar->failed_adding = true;
-    return nullptr;
+    f->failed_adding = true;
+    return nil;
   }
 
-  for (size_t i = 0; i < ar->flags_count; i++) {
-    if (strcmp(ar->flags[i].name, name) == 0) {
-      fprintf(stderr, "Duplicate flagument name: %s\n", name);
-      ar->failed_adding = true;
-      return nullptr;
+  for (size_t i = 0; i < f->flags_count; i++) {
+    if (strcmp(f->flags[i].name, name) == 0) {
+      fprintf(stderr, "Duplicate argument name: %s\n", name);
+      f->failed_adding = true;
+      return nil;
     }
   }
 
-  flag* flag = &ar->flags[ar->flags_count];
+  flag* flag = &f->flags[f->flags_count];
   flag->name = name;
   flag->desc = description;
   flag->type = type;
   flag->is_set = false;
-  ar->flags_count += 1;
-  return &ar->flags[ar->flags_count - 1].value;
+  f->flags_count += 1;
+  return &f->flags[f->flags_count - 1].value;
 }
 
-str_view* _add_flag_string(flags* a, const char* name, const char* description, const char* def) {
-  if (def == nullptr) {
+str_view* _add_flag_string(flags* f, const char* name, const char* description, const char* def) {
+  if (def == nil) {
     def = "";
   }
-  void* got = _add_flag(a, name, description, STRING);
+  void* got = _add_flag(f, name, description, STRING);
   if (!got) {
-    return nullptr;
+    return nil;
   }
-  a->flags[a->flags_count - 1].value.string_value = str_view_from_cstr(def);
+  f->flags[f->flags_count - 1].value.string_value = str_view_from_cstr(def);
   return (str_view*)got;
 }
 
-str_view* _add_flag_str_view(flags* a, const char* name, const char* description, str_view def) {
-  void* got = _add_flag(a, name, description, STRING);
+str_view* _add_flag_str_view(flags* f, const char* name, const char* description, str_view def) {
+  void* got = _add_flag(f, name, description, STRING);
   if (!got) {
-    return nullptr;
+    return nil;
   }
-  a->flags[a->flags_count - 1].value.string_value = def;
+  f->flags[f->flags_count - 1].value.string_value = def;
   return (str_view*)got;
 }
 
-int* _add_flag_int(flags* a, const char* name, const char* description, int def) {
-  void* got = _add_flag(a, name, description, NUMBER);
+int* _add_flag_int(flags* f, const char* name, const char* description, int def) {
+  void* got = _add_flag(f, name, description, NUMBER);
   if (!got) {
-    return nullptr;
+    return nil;
   }
-  a->flags[a->flags_count - 1].value.number_value = def;
+  f->flags[f->flags_count - 1].value.number_value = def;
   return (int*)got;
 }
 
-bool* _add_flag_bool(flags* a, const char* name, const char* description, bool def) {
-  void* got = _add_flag(a, name, description, BOOL);
+bool* _add_flag_bool(flags* f, const char* name, const char* description, bool def) {
+  void* got = _add_flag(f, name, description, BOOL);
   if (!got) {
-    return nullptr;
+    return nil;
   }
-  a->flags[a->flags_count - 1].value.bool_value = def;
+  f->flags[f->flags_count - 1].value.bool_value = def;
   return (bool*)got;
 }
 
 static size_t _null_term_array_len(const void** arr) {
   size_t len = 0;
-  while (arr[len] != nullptr) {
+  while (arr[len] != nil) {
     len += 1;
   }
   return len;
 }
 
-void flags_reset(flags* a) {
-  a->flags_count = 0;
+void flags_reset(flags* f) {
+  f->flags_count = 0;
 
-  da_free(&a->positional_args);
+  da_free(&f->positional_args);
 
-  a->got_help = false;
+  f->got_help = false;
 
-  a->_parsed = false;
+  f->_parsed = false;
 }
 
 static bool _is_flag(const str_view flag) {
@@ -1503,16 +1503,16 @@ static bool _str_startswith(const char* str, const char* prefix) {
   return str_len >= prefix_len && strncmp(str, prefix, prefix_len) == 0;
 }
 
-static bool _add_positional_arg(flags* a, const str_view flag) {
+static bool _add_positional_arg(flags* f, const str_view flag) {
 #ifdef USE_ALLOC_UTILS
-  if (a->positional_args.alloc.alloc == nil) {
-    if (a->alloc.alloc == nil) {
-      a->alloc = make_allocator();
+  if (f->positional_args.alloc.alloc == nil) {
+    if (f->alloc.alloc == nil) {
+      f->alloc = make_allocator();
     }
-    a->positional_args.alloc = a->alloc;
+    f->positional_args.alloc = f->alloc;
   }
 #endif
-  return da_append(&a->positional_args, flag);
+  return da_append(&f->positional_args, flag);
 }
 
 static bool _parse_int(str_view sv, int *out) {
@@ -1550,16 +1550,16 @@ static bool _parse_int(str_view sv, int *out) {
   return true;
 }
 
-static bool _set_flag_value(flags* a, flag* flag, const str_view sv) {
+static bool _set_flag_value(flags* f, flag* flag, const str_view sv) {
   if (flag->is_set) {
-    fprintf(stderr, "flagument '%s' specified multiple times\n", flag->name);
+    fprintf(stderr, "argument '%s' specified multiple times\n", flag->name);
     return false;
   }
 
   switch (flag->type) {
     case BOOL: {
       if (sv.count > 0) {
-        fprintf(stderr, "Boolean flagument '%s' does not take a value\n", flag->name);
+        fprintf(stderr, "Boolean argument '%s' does not take a value\n", flag->name);
         return false;
       }
 
@@ -1573,7 +1573,7 @@ static bool _set_flag_value(flags* a, flag* flag, const str_view sv) {
     case NUMBER: {
       int value;
       if (!_parse_int(sv, &value)) {
-        fprintf(stderr, "Invalid integer value for flagument '%s': '" sfmt "'\n", flag->name, sfmtarg(sv));
+        fprintf(stderr, "Invalid integer value for argument '%s': '" sfmt "'\n", flag->name, sfmtarg(sv));
         return false;
       }
 
@@ -1581,7 +1581,7 @@ static bool _set_flag_value(flags* a, flag* flag, const str_view sv) {
       break;
     }
     default: {
-      fprintf(stderr, "Unknown flagument type for '%s'\n", flag->name);
+      fprintf(stderr, "Unknown argument type for '%s'\n", flag->name);
       return false;
     }
   }
@@ -1591,39 +1591,39 @@ static bool _set_flag_value(flags* a, flag* flag, const str_view sv) {
   return true;
 }
 
-void flags_print_help(flags* a, const char* prog_name) {
+void flags_print_help(flags* f, const char* prog_name) {
   printf("Usage: %s [options]", prog_name);
-  if (a->positional_args_req) {
-    if (strcmp(a->positional_args_req, "+") == 0) {
-      printf(" <flag1> [flag2] ...");
-    } else if (strcmp(a->positional_args_req, "?") == 0) {
-      printf(" [flag]");
-    } else if (strcmp(a->positional_args_req, "*") == 0) {
-      printf(" [flag1] [flag2] ...");
+  if (f->positional_args_req) {
+    if (strcmp(f->positional_args_req, "+") == 0) {
+      printf(" <arg1> [arg2] ...");
+    } else if (strcmp(f->positional_args_req, "?") == 0) {
+      printf(" [arg]");
+    } else if (strcmp(f->positional_args_req, "*") == 0) {
+      printf(" [arg1] [arg2] ...");
     } else {
       printf(" ");
-      int expected = atoi(a->positional_args_req);
+      int expected = atoi(f->positional_args_req);
       for (long j = 0; j < expected; j++) {
-        printf("<flag%ld> ", j + 1);
+        printf("<arg%ld> ", j + 1);
       }
     }
   }
 
   printf("\n");
 
-  if (a->flags_count > 0) {
+  if (f->flags_count > 0) {
     printf("\nOptions:\n");
 
     size_t max_name_len = 0;
-    for (size_t j = 0; j < a->flags_count; j++) {
-      size_t len = strlen(a->flags[j].name);
+    for (size_t j = 0; j < f->flags_count; j++) {
+      size_t len = strlen(f->flags[j].name);
       if (len > max_name_len) {
         max_name_len = len;
       }
     }
 
-    for (size_t j = 0; j < a->flags_count; j++) {
-      flag* flag = &a->flags[j];
+    for (size_t j = 0; j < f->flags_count; j++) {
+      flag* flag = &f->flags[j];
       printf("  -%-*s  %s", (int)max_name_len, flag->name, flag->desc);
       switch (flag->type) {
         case STRING:
@@ -1642,22 +1642,22 @@ void flags_print_help(flags* a, const char* prog_name) {
   }
 }
 
-bool flags_parse(flags* a, int flagc, char** flagv) {
-  if (!a->positional_args_req) {
-  } else if (strcmp(a->positional_args_req, "+") == 0) {
-  } else if (strcmp(a->positional_args_req, "?") == 0) {
-  } else if (strcmp(a->positional_args_req, "*") == 0) {
+bool flags_parse(flags* f, int flagc, char** flagv) {
+  if (!f->positional_args_req) {
+  } else if (strcmp(f->positional_args_req, "+") == 0) {
+  } else if (strcmp(f->positional_args_req, "?") == 0) {
+  } else if (strcmp(f->positional_args_req, "*") == 0) {
   } else {
-    int expected = atoi(a->positional_args_req);
+    int expected = atoi(f->positional_args_req);
     if (expected < 0) {
-      fprintf(stderr, "Invalid positional_args_req: %s\n", a->positional_args_req);
+      fprintf(stderr, "Invalid positional_args_req: %s\n", f->positional_args_req);
       return false;
     }
   }
 
   for (int i = 0; i < flagc; i++) {
     if (strcmp(flagv[i], "-h") == 0) {
-      a->got_help = true;
+      f->got_help = true;
       return true;
     }
   }
@@ -1665,7 +1665,7 @@ bool flags_parse(flags* a, int flagc, char** flagv) {
   for (int i = 1; i < flagc; i++) {
     str_view got = str_view_from_cstr(flagv[i]);
     if (!_is_flag(got)) {
-      if (!_add_positional_arg(a, got)) {
+      if (!_add_positional_arg(f, got)) {
         return false;
       }
       continue;
@@ -1675,8 +1675,8 @@ bool flags_parse(flags* a, int flagc, char** flagv) {
     str_view_chop_left(&got, 1);
     
     bool found = false;
-    for (size_t j = 0; j < a->flags_count; j++) {
-      flag* flag = &a->flags[j];
+    for (size_t j = 0; j < f->flags_count; j++) {
+      flag* flag = &f->flags[j];
       // -flag value syntax
       if (str_view_eq_cstr(got, flag->name)) {
         found = true;
@@ -1684,7 +1684,7 @@ bool flags_parse(flags* a, int flagc, char** flagv) {
 
         if (flag->type != BOOL) {
           if (i + 1 >= flagc) {
-            fprintf(stderr, "flagument '" sfmt "' requires a value\n", sfmtarg(got));
+            fprintf(stderr, "argument '" sfmt "' requires a value\n", sfmtarg(got));
             return false;
           }
 
@@ -1692,7 +1692,7 @@ bool flags_parse(flags* a, int flagc, char** flagv) {
           i += 1;
         }
 
-        if (!_set_flag_value(a, &a->flags[j], value)) {
+        if (!_set_flag_value(f, &f->flags[j], value)) {
           return false;
         }
         break;
@@ -1715,7 +1715,7 @@ bool flags_parse(flags* a, int flagc, char** flagv) {
       str_view value = suffix;
       str_view_chop_left(&value, 1);
 
-      if (!_set_flag_value(a, &a->flags[j], value)) {
+      if (!_set_flag_value(f, &f->flags[j], value)) {
         return false;
       }
     }
@@ -1727,43 +1727,43 @@ bool flags_parse(flags* a, int flagc, char** flagv) {
         str_view flag_name = got;
         flag_name.count = (size_t)equal_sign;
 
-        fprintf(stderr, "Unknown flagument: " sfmt "\n", sfmtarg(flag_name));
+        fprintf(stderr, "Unknown argument: " sfmt "\n", sfmtarg(flag_name));
         return false;
       } else {
-        fprintf(stderr, "Unknown flagument: " sfmt "\n", sfmtarg(got));
+        fprintf(stderr, "Unknown argument: " sfmt "\n", sfmtarg(got));
         return false;
       }
     }
   }
 
-  if (!a->positional_args_req) {
+  if (!f->positional_args_req) {
     // unspecified, assume 0
-    if (a->positional_args.count > 0) {
-      fprintf(stderr, "Expected no positional flaguments, got %zu\n", a->positional_args.count);
+    if (f->positional_args.count > 0) {
+      fprintf(stderr, "Expected no positional arguments, got %zu\n", f->positional_args.count);
       return false;
     }
-  } else if (strcmp(a->positional_args_req, "+") == 0) {
-    if (a->positional_args.count == 0) {
-      fprintf(stderr, "Expected at least one positional flagument\n");
+  } else if (strcmp(f->positional_args_req, "+") == 0) {
+    if (f->positional_args.count == 0) {
+      fprintf(stderr, "Expected at least one positional argument\n");
       return false;
     }
-  } else if (strcmp(a->positional_args_req, "?") == 0) {
-    if (a->positional_args.count > 1) {
-      fprintf(stderr, "Expected at most one positional flagument\n");
+  } else if (strcmp(f->positional_args_req, "?") == 0) {
+    if (f->positional_args.count > 1) {
+      fprintf(stderr, "Expected at most one positional argument\n");
       return false;
     }
-  } else if (strcmp(a->positional_args_req, "*") == 0) {
-    // any number of positional flaguments is allowed
+  } else if (strcmp(f->positional_args_req, "*") == 0) {
+    // any number of positional arguments is allowed
   } else {
     // expected to be a number
-    int expected = atoi(a->positional_args_req);
-    if (a->positional_args.count != (size_t)expected) {
-      fprintf(stderr, "Expected %d positional flaguments, got %zu\n", expected, a->positional_args.count);
+    int expected = atoi(f->positional_args_req);
+    if (f->positional_args.count != (size_t)expected) {
+      fprintf(stderr, "Expected %d positional arguments, got %zu\n", expected, f->positional_args.count);
       return false;
     }
   }
 
-  a->_parsed = true;
+  f->_parsed = true;
   return true;
 }
 
