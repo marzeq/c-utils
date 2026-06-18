@@ -1679,8 +1679,10 @@ bool flags_parse(flags* a, int flagc, char** flagv) {
         flag_name.count = (size_t)equal_sign;
 
         fprintf(stderr, "Unknown flagument: " sfmt "\n", sfmtarg(flag_name));
+        return false;
       } else {
         fprintf(stderr, "Unknown flagument: " sfmt "\n", sfmtarg(got));
+        return false;
       }
     }
   }
