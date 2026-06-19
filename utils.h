@@ -773,14 +773,6 @@ str_view str_view_chop_while(str_view *sv, int (*p)(int x)) {
   return result;
 }
 
-// @name str_view_chop_by_delim
-// @kind function
-// @desc Removes and returns everything before the first occurrence of the delimiter.
-// The delimiter itself is also removed from the original string view.
-// If the delimiter is not found, the entire string view is returned.
-// @param sv The string view to chop from.
-// @param delim The delimiter character.
-// @return The chopped substring.
 str_view str_view_chop_by_delim(str_view *sv, char delim) {
   size_t i = 0;
   while (i < sv->count && sv->data[i] != delim) {
