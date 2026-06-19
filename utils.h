@@ -6,7 +6,7 @@ Provides:
 - Custom memory allocators 
 - String views and builders
 - Defer functionality
-- Dynamic arrays
+- Dynamic arrays, hash maps and other collections
 - File utilities
 - Command-line flag parsing
 
@@ -131,7 +131,7 @@ typedef ptrdiff_t isz;
 #define USE_ALLOC_UTILS
 #define USE_DEFER_UTILS
 #define USE_STR_UTILS
-#define USE_DA_UTILS
+#define USE_COLLECTION_UTILS
 #define USE_FILE_UTILS
 #define USE_FLAGS_UTILS
 #endif
@@ -145,7 +145,7 @@ typedef ptrdiff_t isz;
 
 #ifdef USE_FLAGS_UTILS
 #define USE_STR_UTILS
-#define USE_DA_UTILS
+#define USE_COLLECTION_UTILS
 #endif
 
 #ifdef USE_ALLOC_UTILS
@@ -1062,14 +1062,14 @@ void str_builder_free(str_builder* sb) {
 
 
 
-#ifdef USE_DA_UTILS
+#ifdef USE_COLLECTION_UTILS
 
 #include <string.h>
 
 #ifdef USE_ALLOC_UTILS
-#define _DA_ALLOC_FIELD allocator alloc;
+#define _COLLECTION_ALLOC_FIELD allocator alloc;
 #else
-#define _DA_ALLOC_FIELD
+#define _COLLECTION_ALLOC_FIELD
 #endif
 
 typedef struct {
@@ -1086,7 +1086,7 @@ typedef struct {
   T* data;             \
   usz count;           \
   usz capacity;        \
-  _DA_ALLOC_FIELD      \
+  _COLLECTION_ALLOC_FIELD      \
 }
 
 #ifdef USE_ALLOC_UTILS
@@ -1202,7 +1202,326 @@ void _da_free(_da_base* arr) {
 #define da_foreach_i(...) \
   _DA_FOREACH_I_GET(__VA_ARGS__, _DA_FOREACH_I_3, _, _DA_FOREACH_I_1)(__VA_ARGS__)
 
-#endif // USE_DA_UTILS
+
+#ifdef USE_ALLOC_UTILS
+#define _COLLECTION_ALLOC_FIELD allocator alloc;
+#else
+#define _COLLECTION_ALLOC_FIELD
+#endif
+
+typedef struct {
+  void *data;
+  usz count;
+  usz capacity;
+  _COLLECTION_ALLOC_FIELD
+} _map_base;
+
+#ifdef USE_ALLOC_UTILS
+
+static void _map_ensure_allocator(_map_base *map) {
+  if (map->alloc.alloc == nil) {
+    map->alloc = make_allocator();
+  }
+}
+
+#define _map_alloc(map, size) \
+  (map)->alloc.alloc((map)->alloc.ctx, (size))
+
+#define _map_free_mem(map, ptr) \
+  (map)->alloc.free((map)->alloc.ctx, (ptr))
+
+#else
+
+static void _map_ensure_allocator(_map_base *map) {
+  (void)map;
+}
+
+#define _map_alloc(map, size) malloc(size)
+
+#define _map_free_mem(map, ptr) free(ptr)
+
+#endif
+
+#define _map_entry(T) struct { \
+  const char* key;             \
+  T value;                     \
+  bool occupied;               \
+}
+
+#define map(T) struct {   \
+  _map_entry(T)* data;    \
+  usz count;              \
+  usz capacity;           \
+  _COLLECTION_ALLOC_FIELD \
+}
+
+static u64 _map_hash(const char *str) {
+  u64 hash = 14695981039346656037ull;
+
+  while (*str) {
+    hash ^= (u8)*str;
+    hash *= 1099511628211ull;
+    str += 1;
+  }
+
+  return hash;
+}
+
+static bool _map_init_slots(_map_base* map, usz elem_size, usz capacity) {
+  _map_ensure_allocator(map);
+
+  void* data = _map_alloc(map, capacity * elem_size);
+
+  if (data == nil) {
+    return false;
+  }
+
+  memset(data, 0, capacity * elem_size);
+
+  map->data = data;
+  map->capacity = capacity;
+  map->count = 0;
+
+  return true;
+}
+
+static bool _map_insert_no_rehash(
+  _map_base* map,
+  const char* key,
+  void* value,
+  usz elem_size
+) {
+  usz cap = map->capacity;
+  u8* base = map->data;
+
+  usz idx = _map_hash(key) % cap;
+  usz probes = 0;
+
+  while (probes < cap) {
+    void* entry = base + idx * elem_size;
+
+    bool* occupied = (bool*)((u8*)entry + elem_size - sizeof(bool));
+
+    if (!*occupied) {
+      memcpy(entry, &key, sizeof key);
+
+      memcpy(
+        (u8*)entry + sizeof(char*),
+        value,
+        elem_size - sizeof(char*) - sizeof(bool)
+      );
+
+      *occupied = true;
+      map->count += 1;
+
+      return true;
+    }
+
+    idx += 1;
+
+    if (idx >= cap) {
+      idx = 0;
+    }
+
+    probes += 1;
+  }
+
+  return false;
+}
+
+static bool _map_rehash(_map_base* map, usz elem_size, usz new_capacity) {
+  _map_base new_map = {0};
+
+#ifdef USE_ALLOC_UTILS
+  new_map.alloc = map->alloc;
+#endif
+
+  if (!_map_init_slots(&new_map, elem_size, new_capacity)) {
+    return false;
+  }
+
+  u8* base = map->data;
+
+  for (usz i = 0; i < map->capacity; i += 1) {
+    void* entry = base + i * elem_size;
+
+    bool* occupied = (bool*)((u8*)entry + elem_size - sizeof(bool));
+
+    if (*occupied) {
+      const char* key = *(const char**)entry;
+
+      void* value = (u8*)entry + sizeof(char*);
+
+      if (!_map_insert_no_rehash(
+        &new_map,
+        key,
+        value,
+        elem_size
+      )) {
+
+        _map_free_mem(&new_map, new_map.data);
+
+        return false;
+      }
+    }
+  }
+
+  if (map->data != nil) {
+    _map_free_mem(map, map->data);
+  }
+
+  map->data = new_map.data;
+  map->count = new_map.count;
+  map->capacity = new_map.capacity;
+
+  return true;
+}
+
+static bool _map_insert_impl(
+  _map_base* map,
+  const char* key,
+  void* value,
+  usz elem_size
+) {
+  if (map->capacity == 0) {
+    if (!_map_init_slots(map, elem_size, 16)) {
+      return false;
+    }
+  }
+
+  if ((map->count + 1) * 10 >= map->capacity * 7) {
+    if (!_map_rehash(
+      map,
+      elem_size,
+      map->capacity * 2
+    )) {
+      return false;
+    }
+  }
+
+  usz cap = map->capacity;
+  u8* base = map->data;
+
+  usz idx = _map_hash(key) % cap;
+  usz probes = 0;
+
+  while (probes < cap) {
+    void* entry = base + idx * elem_size;
+
+    bool* occupied = (bool*)((u8*)entry + elem_size - sizeof(bool));
+
+    if (!*occupied) {
+      memcpy(entry, &key, sizeof key);
+
+      memcpy(
+        (u8*)entry + sizeof(char*),
+        value,
+        elem_size - sizeof(char*) - sizeof(bool)
+      );
+
+      *occupied = true;
+
+      map->count += 1;
+
+      return true;
+    }
+
+    const char* existing = *(const char**)entry;
+
+    if (strcmp(existing, key) == 0) {
+      memcpy(
+        (u8*)entry + sizeof(char*),
+        value,
+        elem_size - sizeof(char*) - sizeof(bool)
+      );
+
+      return true;
+    }
+
+    idx += 1;
+
+    if (idx >= cap) {
+      idx = 0;
+    }
+
+    probes += 1;
+  }
+
+  return false;
+}
+
+static void* _map_get_impl(_map_base* map, const char* key, usz elem_size) {
+  if (map->capacity == 0) {
+    return nil;
+  }
+
+  usz idx = _map_hash(key) % map->capacity;
+  usz probes = 0;
+
+  u8* base = map->data;
+
+  while (probes < map->capacity) {
+    void* entry = base + idx * elem_size;
+
+    bool* occupied = (bool*)((u8*)entry + elem_size - sizeof(bool));
+
+    if (!*occupied) {
+      return nil;
+    }
+
+    const char* existing = *(const char**)entry;
+
+    if (strcmp(existing, key) == 0) {
+      return (u8*)entry + sizeof(char*);
+    }
+
+    idx += 1;
+
+    if (idx >= map->capacity) {
+      idx = 0;
+    }
+
+    probes += 1;
+  }
+
+  return nil;
+}
+
+static void _map_free(_map_base* map) {
+  _map_ensure_allocator(map);
+
+  if (map->data != nil) {
+    _map_free_mem(map, map->data);
+  }
+
+  map->data = nil;
+  map->count = 0;
+  map->capacity = 0;
+}
+
+#define map_insert(map, k, v) ({           \
+  typeof((map)->data[0].value) _tmp = (v); \
+  _map_insert_impl(                        \
+    (_map_base*)(map),                     \
+    (k),                                   \
+    &_tmp,                                 \
+    sizeof((map)->data[0])                 \
+  );                                       \
+})
+
+#define map_get(map, k)            \
+  ((typeof(&(map)->data[0].value)) \
+    _map_get_impl(                 \
+      (_map_base*)(map),           \
+      (k),                         \
+      sizeof((map)->data[0])       \
+    ))
+
+#define map_free(map) \
+  _map_free((_map_base*)(map))
+
+
+#endif // USE_COLLECTION_UTILS
 
 
 #ifdef USE_FILE_UTILS
