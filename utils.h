@@ -162,6 +162,11 @@ typedef struct {
   void (*reset)(void* ctx);
 } allocator;
 
+#define a_alloc(a, size) ((a).alloc((a).ctx, (size)))
+#define a_realloc(a, ptr, new_size) ((a).realloc((a).ctx, (ptr), (new_size)))
+#define a_free(a, ptr) ((a).free((a).ctx, (ptr)))
+#define a_reset(a) ((a).reset((a).ctx))
+
 static void* _libc_alloc(void* ctx, usz size) {
   (void)ctx;
   return malloc(size);
@@ -703,7 +708,7 @@ void scratch_end(scratch s) {
     (void)_unused;                                    \
     code                                              \
   }                                                   \
-  \
+                                                      \
   __attribute__((cleanup(_CONCAT(_defer_func_, id)))) \
   int _CONCAT(_defer_var_, id) = 0
 

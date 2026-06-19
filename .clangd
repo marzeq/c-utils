@@ -3,7 +3,7 @@ If:
 CompileFlags:
   Add:
     - -xc
-    - -std=c23
+    - -std=gnu23
     - -D__clangd__
     - -DUSE_ALL_UTILS
 
@@ -14,4 +14,4 @@ If:
 CompileFlags:
   Add: 
     - -D__clangd__
-    - -std=c23
+    - -std=gnu23
