@@ -163,6 +163,7 @@ typedef struct {
 } allocator;
 
 #define a_alloc(a, size) ((a).alloc((a).ctx, (size)))
+#define a_new(a, T) ((T*)a_alloc((a), sizeof(T)))
 #define a_realloc(a, ptr, new_size) ((a).realloc((a).ctx, (ptr), (new_size)))
 #define a_free(a, ptr) ((a).free((a).ctx, (ptr)))
 #define a_reset(a) ((a).reset((a).ctx))
