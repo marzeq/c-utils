@@ -594,6 +594,9 @@ static allocator _make_allocator_arena(arena* arena) {
   };
 }
 
+#define make_tracking_allocator(tracker) _make_tracking_allocator(&(tracking_allocator){})
+#define make_arena_allocator() _make_allocator_arena(&(arena){})
+
 #define _MAKE_ALLOCATOR_0() \
     _make_simple_allocator()
 
@@ -707,7 +710,7 @@ void scratch_end(scratch s) {
 #define _DEFER_INTERNAL(id, code)                     \
   void _CONCAT(_defer_func_, id)(void* _unused) {     \
     (void)_unused;                                    \
-    code                                              \
+    code;                                             \
   }                                                   \
                                                       \
   __attribute__((cleanup(_CONCAT(_defer_func_, id)))) \
