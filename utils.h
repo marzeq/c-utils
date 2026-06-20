@@ -105,7 +105,7 @@ typedef int64_t  i64;
 typedef float    f32;
 typedef double   f64;
 
-typedef size_t   usz;
+typedef size_t    usz;
 typedef ptrdiff_t isz;
 
 #define U8_MAX  UINT8_MAX
@@ -138,7 +138,7 @@ typedef ptrdiff_t isz;
 
 
 // Handle dependencies between utilities.
-//
+
 #ifdef USE_FILE_UTILS
 #define USE_STR_UTILS
 #endif
@@ -158,8 +158,8 @@ typedef struct {
 
   void* (*alloc)(void* ctx, usz size);
   void* (*realloc)(void* ctx, void* ptr, usz new_size);
-  void (*free)(void* ctx, void* ptr);
-  void (*reset)(void* ctx);
+  void  (*free)(void* ctx, void* ptr);
+  void  (*reset)(void* ctx);
 } allocator;
 
 #define a_alloc(a, size) ((a).alloc((a).ctx, (size)))
@@ -737,32 +737,19 @@ Taken from tsoding's nob.h
 #include <ctype.h>
 
 typedef struct {
-  size_t count;
-  const char *data;
+  usz count;
+  const char* data;
 } str_view;
 
-// Forward declarations so that the functions can call each other
-str_view str_view_chop_while(str_view *sv, int (*p)(int x));
-str_view str_view_chop_by_delim(str_view *sv, char delim);
-str_view str_view_chop_left(str_view *sv, size_t n);
-str_view str_view_chop_right(str_view *sv, size_t n);
-bool str_view_chop_prefix(str_view *sv, str_view prefix);
-bool str_view_chop_suffix(str_view *sv, str_view suffix);
-str_view str_view_trim(str_view sv);
-str_view str_view_trim_left(str_view sv);
-str_view str_view_trim_right(str_view sv);
-bool str_view_eq(str_view a, str_view b);
-bool str_view_eq_cstr(str_view sv, const char *cstr);
-bool str_view_ends_with_cstr(str_view sv, const char *cstr);
-bool str_view_ends_with(str_view sv, str_view suffix);
-bool str_view_starts_with(str_view sv, str_view prefix);
-bool str_view_starts_with_cstr(str_view sv, const char *cstr);
-str_view str_view_from_cstr(const char *cstr);
-str_view str_view_from_parts(const char *data, size_t count);
-int str_view_find(str_view sv, char c);
+str_view str_view_from_parts(const char* data, usz count) {
+  str_view sv;
+  sv.count = count;
+  sv.data = data;
+  return sv;
+}
 
-str_view str_view_chop_while(str_view *sv, int (*p)(int x)) {
-  size_t i = 0;
+str_view str_view_chop_while(str_view* sv, int (*p)(int x)) {
+  usz i = 0;
   while (i < sv->count && p(sv->data[i])) {
     i += 1;
   }
@@ -774,8 +761,8 @@ str_view str_view_chop_while(str_view *sv, int (*p)(int x)) {
   return result;
 }
 
-str_view str_view_chop_by_delim(str_view *sv, char delim) {
-  size_t i = 0;
+str_view str_view_chop_by_delim(str_view* sv, char delim) {
+  usz i = 0;
   while (i < sv->count && sv->data[i] != delim) {
     i += 1;
   }
@@ -793,23 +780,7 @@ str_view str_view_chop_by_delim(str_view *sv, char delim) {
   return result;
 }
 
-bool str_view_chop_prefix(str_view *sv, str_view prefix) {
-  if (str_view_starts_with(*sv, prefix)) {
-    str_view_chop_left(sv, prefix.count);
-    return true;
-  }
-  return false;
-}
-
-bool str_view_chop_suffix(str_view *sv, str_view suffix) {
-  if (str_view_ends_with(*sv, suffix)) {
-    str_view_chop_right(sv, suffix.count);
-    return true;
-  }
-  return false;
-}
-
-str_view str_view_chop_left(str_view *sv, size_t n) {
+str_view str_view_chop_left(str_view* sv, usz n) {
   if (n > sv->count) {
     n = sv->count;
   }
@@ -822,7 +793,7 @@ str_view str_view_chop_left(str_view *sv, size_t n) {
   return result;
 }
 
-str_view str_view_chop_right(str_view *sv, size_t n) {
+str_view str_view_chop_right(str_view* sv, usz n) {
   if (n > sv->count) {
     n = sv->count;
   }
@@ -834,15 +805,106 @@ str_view str_view_chop_right(str_view *sv, size_t n) {
   return result;
 }
 
-str_view str_view_from_parts(const char *data, size_t count) {
-  str_view sv;
-  sv.count = count;
-  sv.data = data;
-  return sv;
+str_view str_view_from_cstr(const char* cstr) {
+  return str_view_from_parts(cstr, strlen(cstr));
+}
+
+#define str_view_eq(a, b) _Generic((a), \
+  str_view: str_view_eq_sv, \
+  const char*: str_view_eq_cstr, \
+  char*: str_view_eq_cstr \
+)(a, b)
+
+bool str_view_eq_sv(str_view a, str_view b) {
+  if (a.count != b.count) {
+    return false;
+  } else {
+    return memcmp(a.data, b.data, a.count) == 0;
+  }
+}
+
+bool str_view_eq_cstr(str_view sv, const char* cstr) {
+  return str_view_eq_sv(sv, str_view_from_cstr(cstr));
+}
+
+#define str_view_ends_with(sv, suffix) _Generic((suffix), \
+  str_view: str_view_ends_with_sv, \
+  const char*: str_view_ends_with_cstr, \
+  char*: str_view_ends_with_cstr \
+)(sv, suffix)
+
+bool str_view_ends_with_sv(str_view sv, str_view suffix) {
+  if (sv.count >= suffix.count) {
+    str_view sv_tail = {
+      .count = suffix.count,
+      .data = sv.data + sv.count - suffix.count,
+    };
+    return str_view_eq_sv(sv_tail, suffix);
+  }
+  return false;
+}
+
+bool str_view_ends_with_cstr(str_view sv, const char* cstr) {
+  return str_view_ends_with_sv(sv, str_view_from_cstr(cstr));
+}
+
+#define str_view_starts_with(sv, prefix) _Generic((prefix), \
+  str_view: str_view_starts_with_sv, \
+  const char*: str_view_starts_with_cstr, \
+  char*: str_view_starts_with_cstr \
+)(sv, prefix)
+
+bool str_view_starts_with_sv(str_view sv, str_view expected_prefix) {
+  if (expected_prefix.count <= sv.count) {
+    str_view actual_prefix = str_view_from_parts(sv.data, expected_prefix.count);
+    return str_view_eq_sv(expected_prefix, actual_prefix);
+  }
+
+  return false;
+}
+
+bool str_view_starts_with_cstr(str_view sv, const char* cstr) {
+  return str_view_starts_with_sv(sv, str_view_from_cstr(cstr));
+}
+
+#define str_view_chop_prefix(sv, prefix) _Generic((prefix), \
+  str_view: str_view_chop_prefix_sv, \
+  const char*: str_view_chop_prefix_cstr, \
+  char*: str_view_chop_prefix_cstr \
+)(sv, prefix)
+
+bool str_view_chop_prefix_sv(str_view* sv, str_view prefix) {
+  if (str_view_starts_with_sv(*sv, prefix)) {
+    str_view_chop_left(sv, prefix.count);
+    return true;
+  }
+  return false;
+}
+
+bool str_view_chop_prefix_cstr(str_view* sv, const char* prefix) {
+  return str_view_chop_prefix_sv(sv, str_view_from_cstr(prefix));
+}
+
+#define str_view_chop_suffix(sv, suffix) _Generic((suffix), \
+  str_view: str_view_chop_suffix_sv, \
+  const char*: str_view_chop_suffix_cstr, \
+  char*: str_view_chop_suffix_cstr \
+)(sv, suffix)
+
+bool str_view_chop_suffix_sv(str_view* sv, str_view suffix) {
+  if (str_view_ends_with(*sv, suffix)) {
+    str_view_chop_right(sv, suffix.count);
+    return true;
+  }
+  return false;
+}
+
+bool str_view_chop_suffix_cstr(str_view* sv, const char* suffix) {
+  return str_view_chop_suffix_sv(sv, str_view_from_cstr(suffix));
 }
 
 str_view str_view_trim_left(str_view sv) {
-  size_t i = 0;
+  usz i = 0;
   while (i < sv.count && isspace(sv.data[i])) {
     i += 1;
   }
@@ -851,7 +913,7 @@ str_view str_view_trim_left(str_view sv) {
 }
 
 str_view str_view_trim_right(str_view sv) {
-  size_t i = 0;
+  usz i = 0;
   while (i < sv.count && isspace(sv.data[sv.count - 1 - i])) {
     i += 1;
   }
@@ -863,53 +925,8 @@ str_view str_view_trim(str_view sv) {
   return str_view_trim_right(str_view_trim_left(sv));
 }
 
-str_view str_view_from_cstr(const char *cstr) {
-  return str_view_from_parts(cstr, strlen(cstr));
-}
-
-
-bool str_view_eq(str_view a, str_view b) {
-  if (a.count != b.count) {
-    return false;
-  } else {
-    return memcmp(a.data, b.data, a.count) == 0;
-  }
-}
-
-bool str_view_eq_cstr(str_view sv, const char *cstr) {
-  return str_view_eq(sv, str_view_from_cstr(cstr));
-}
-
-bool str_view_ends_with_cstr(str_view sv, const char *cstr) {
-  return str_view_ends_with(sv, str_view_from_cstr(cstr));
-}
-
-bool str_view_ends_with(str_view sv, str_view suffix) {
-  if (sv.count >= suffix.count) {
-    str_view sv_tail = {
-      .count = suffix.count,
-      .data = sv.data + sv.count - suffix.count,
-    };
-    return str_view_eq(sv_tail, suffix);
-  }
-  return false;
-}
-
-bool str_view_starts_with(str_view sv, str_view expected_prefix) {
-  if (expected_prefix.count <= sv.count) {
-    str_view actual_prefix = str_view_from_parts(sv.data, expected_prefix.count);
-    return str_view_eq(expected_prefix, actual_prefix);
-  }
-
-  return false;
-}
-
-bool str_view_starts_with_cstr(str_view sv, const char *cstr) {
-  return str_view_starts_with(sv, str_view_from_cstr(cstr));
-}
-
 int str_view_find(str_view sv, char c) {
-  for (size_t i = 0; i < sv.count; ++i) {
+  for (usz i = 0; i < sv.count; ++i) {
     if (sv.data[i] == c) {
       return (int)i;
     }
@@ -1082,11 +1099,11 @@ typedef struct {
 #endif
 } _da_base;
 
-#define da(T) struct { \
-  T* data;             \
-  usz count;           \
-  usz capacity;        \
-  _COLLECTION_ALLOC_FIELD      \
+#define da(T) struct {    \
+  T* data;                \
+  usz count;              \
+  usz capacity;           \
+  _COLLECTION_ALLOC_FIELD \
 }
 
 #ifdef USE_ALLOC_UTILS
@@ -1202,12 +1219,6 @@ void _da_free(_da_base* arr) {
 #define da_foreach_i(...) \
   _DA_FOREACH_I_GET(__VA_ARGS__, _DA_FOREACH_I_3, _, _DA_FOREACH_I_1)(__VA_ARGS__)
 
-
-#ifdef USE_ALLOC_UTILS
-#define _COLLECTION_ALLOC_FIELD allocator alloc;
-#else
-#define _COLLECTION_ALLOC_FIELD
-#endif
 
 typedef struct {
   void *data;
@@ -1687,7 +1698,7 @@ typedef struct flags {
   const char* positional_args_req;
 
   flag flags[FLAGS_MAX_FLAGS];
-  size_t flags_count;
+  usz flags_count;
 
   da(str_view) positional_args;
 
@@ -1748,7 +1759,7 @@ static void* _add_flag(flags* f, const char* name, const char* description, flag
     return nil;
   }
 
-  for (size_t i = 0; i < f->flags_count; i++) {
+  for (usz i = 0; i < f->flags_count; i++) {
     if (strcmp(f->flags[i].name, name) == 0) {
       fprintf(stderr, "duplicate flag name: %s\n", name);
       f->failed_adding = true;
@@ -1804,8 +1815,8 @@ bool* _add_flag_bool(flags* f, const char* name, const char* description, bool d
   return (bool*)got;
 }
 
-static size_t _null_term_array_len(const void** arr) {
-  size_t len = 0;
+static usz _null_term_array_len(const void** arr) {
+  usz len = 0;
   while (arr[len] != nil) {
     len += 1;
   }
@@ -1827,8 +1838,8 @@ static bool _is_flag(const str_view flag) {
 }
 
 static bool _str_startswith(const char* str, const char* prefix) {
-  size_t str_len = strlen(str);
-  size_t prefix_len = strlen(prefix);
+  usz str_len = strlen(str);
+  usz prefix_len = strlen(prefix);
   return str_len >= prefix_len && strncmp(str, prefix, prefix_len) == 0;
 }
 
@@ -1850,7 +1861,7 @@ static bool _parse_int(str_view sv, int *out) {
   }
 
   bool negative = false;
-  size_t i = 0;
+  usz i = 0;
 
   if (sv.data[0] == '-') {
     negative = true;
@@ -1939,15 +1950,15 @@ void flags_print_help(flags* f, const char* prog_name) {
   if (f->flags_count > 0) {
     printf("\nOptions:\n");
 
-    size_t max_name_len = 0;
-    for (size_t j = 0; j < f->flags_count; j++) {
-      size_t len = strlen(f->flags[j].name);
+    usz max_name_len = 0;
+    for (usz j = 0; j < f->flags_count; j++) {
+      usz len = strlen(f->flags[j].name);
       if (len > max_name_len) {
         max_name_len = len;
       }
     }
 
-    for (size_t j = 0; j < f->flags_count; j++) {
+    for (usz j = 0; j < f->flags_count; j++) {
       flag* flag = &f->flags[j];
       printf("  -%-*s  %s", (int)max_name_len, flag->name, flag->desc);
       switch (flag->type) {
@@ -2000,7 +2011,7 @@ bool flags_parse(flags* f, int flagc, char** flagv) {
     str_view_chop_left(&got, 1);
     
     bool found = false;
-    for (size_t j = 0; j < f->flags_count; j++) {
+    for (usz j = 0; j < f->flags_count; j++) {
       flag* flag = &f->flags[j];
       // -flag value syntax
       if (str_view_eq_cstr(got, flag->name)) {
@@ -2023,7 +2034,7 @@ bool flags_parse(flags* f, int flagc, char** flagv) {
         break;
       }
 
-      size_t candidate_len = strlen(flag->name);
+      usz candidate_len = strlen(flag->name);
       if (!str_view_starts_with_cstr(got, flag->name)) {
         continue;
       }
@@ -2050,7 +2061,7 @@ bool flags_parse(flags* f, int flagc, char** flagv) {
 
       if (equal_sign != -1) {
         str_view flag_name = got;
-        flag_name.count = (size_t)equal_sign;
+        flag_name.count = (usz)equal_sign;
 
         fprintf(stderr, "unknown flag -" sfmt "\n", sfmtarg(flag_name));
         return false;
@@ -2082,7 +2093,7 @@ bool flags_parse(flags* f, int flagc, char** flagv) {
   } else {
     // expected to be a number
     int expected = atoi(f->positional_args_req);
-    if (f->positional_args.count != (size_t)expected) {
+    if (f->positional_args.count != (usz)expected) {
       fprintf(stderr, "expected %d positional arguments, got %zu\n", expected, f->positional_args.count);
       return false;
     }
