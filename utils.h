@@ -1,31 +1,33 @@
 /*
-utils.h - One file for the things you end up writing in every C project anyway.
+utils.h - A high level stb-style utility library for writing contemporary C code.
 
 Provides:
 
-- Custom memory allocators 
+- Custom memory allocators
 - String views and builders
 - Defer functionality
 - Dynamic arrays, hash maps and other collections
 - File utilities
-- Command-line flag parsing
+- Command-line utils_flag parsing
 
 Inspired by modern systems programming languages and
 common patterns used in contemporary C code.
 
-Some parts were written from scratch,
+Some parts were written from utils_scratch,
 while others are adapted from public-domain code by various authors.
 
 Usage:
-  #define USE_(FEATURE1)_UTILS
-  #define USE_(FEATURE2)_UTILS
-  #include "utils.h"
-  
-Or:
-  #define USE_ALL_UTILS
+  // In exactly one translation unit:
+  #define UTILS_IMPLEMENTATION
   #include "utils.h"
 
-See the definition of USE_ALL_UTILS for the complete feature list.
+  // Optional: expose the short legacy names too.
+  #define UTILS_STRIP_PREFIX
+  #include "utils.h"
+
+Notes:
+  - utils.h requires C23 or later.
+  - `utils_defer`, `utils_da_*`, and `utils_map_*` rely on GNU C extensions.
 
 Dual-licensed under either of these:
 
@@ -78,8 +80,8 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
-#ifndef _UTILS_H
-#define _UTILS_H
+#ifndef UTILS_H_INCLUDED
+#define UTILS_H_INCLUDED
 
 #if !defined(__STDC_VERSION__) || __STDC_VERSION__ < 202311L
 #error utils.h requires C23 or later
@@ -87,10 +89,11 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SO
 
 static_assert(sizeof(void*) == 8, "utils.h requires 64-bit pointers");
 
-#include <stdint.h>
-#include <stddef.h>
-#include <stdlib.h>
+#include <assert.h>
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdlib.h>
 
 typedef uint8_t  u8;
 typedef uint16_t u16;
@@ -124,34 +127,11 @@ typedef ptrdiff_t isz;
 
 #define nil nullptr
 
-#define TODO(message) assert(0 && "TODO:" message)
+#define UTILS_TODO(message) assert(0 && "UTILS_TODO:" message)
 
-
-#ifdef USE_ALL_UTILS
-#define USE_ALLOC_UTILS
-#define USE_DEFER_UTILS
-#define USE_STR_UTILS
-#define USE_COLLECTION_UTILS
-#define USE_FILE_UTILS
-#define USE_FLAGS_UTILS
+#ifndef UTILS_DEF
+#define UTILS_DEF extern
 #endif
-
-
-// Handle dependencies between utilities.
-
-#ifdef USE_FILE_UTILS
-#define USE_STR_UTILS
-#endif
-
-#ifdef USE_FLAGS_UTILS
-#define USE_STR_UTILS
-#define USE_COLLECTION_UTILS
-#endif
-
-#ifdef USE_ALLOC_UTILS
-
-#include <string.h>
-#include <assert.h>
 
 typedef struct {
   void* ctx;
@@ -160,44 +140,529 @@ typedef struct {
   void* (*realloc)(void* ctx, void* ptr, usz new_size);
   void  (*free)(void* ctx, void* ptr);
   void  (*reset)(void* ctx);
-} allocator;
+} utils_allocator;
 
-#define a_alloc(a, size) ((a).alloc((a).ctx, (size)))
-#define a_new(a, T) ((T*)a_alloc((a), sizeof(T)))
-#define a_realloc(a, ptr, new_size) ((a).realloc((a).ctx, (ptr), (new_size)))
-#define a_free(a, ptr) ((a).free((a).ctx, (ptr)))
-#define a_reset(a) ((a).reset((a).ctx))
-
-static void* _libc_alloc(void* ctx, usz size) {
-  (void)ctx;
-  return malloc(size);
-}
-
-static void* _libc_realloc(void* ctx, void* ptr, usz new_size) {
-  (void)ctx;
-
-  return realloc(ptr, new_size);
-}
-
-static void _libc_free(void* ctx, void* ptr) {
-  (void)ctx;
-  free(ptr);
-}
-
-static void _libc_reset(void* ctx) {
-  (void)ctx;
-  assert(0 && "libc_allocator does not support reset");
-}
+#define utils_a_alloc(a, size) ((a).alloc((a).ctx, (size)))
+#define utils_a_new(a, T) ((T*)utils_a_alloc((a), sizeof(T)))
+#define utils_a_realloc(a, ptr, new_size) ((a).realloc((a).ctx, (ptr), (new_size)))
+#define utils_a_free(a, ptr) ((a).free((a).ctx, (ptr)))
+#define utils_a_reset(a) ((a).reset((a).ctx))
 
 typedef struct {
   void** allocations;
   usz count;
   usz capacity;
-} tracking_allocator;
+} utils_tracking_allocator;
 
-static bool _tracking_allocator_resize(tracking_allocator* tracker) {
+typedef struct utils_arena_block utils_arena_block;
+
+typedef struct {
+  utils_arena_block* first;
+  utils_arena_block* current;
+  usz block_size;
+} utils_arena;
+
+#ifndef UTILS_ARENA_MIN_BLOCK_SIZE
+#define UTILS_ARENA_MIN_BLOCK_SIZE 256
+#endif
+
+typedef struct {
+  utils_arena_block* block;
+  usz used;
+} utils_arena_save_point;
+
+typedef struct {
+  utils_arena* backing;
+  utils_arena_save_point save;
+  utils_allocator alloc;
+} utils_scratch;
+
+UTILS_DEF bool utils_tracking_allocator_track_ptr(utils_tracking_allocator* tracker, void* ptr);
+UTILS_DEF void utils_tracking_allocator_untrack_ptr(utils_tracking_allocator* tracker, void* ptr);
+
+UTILS_DEF utils_arena_save_point utils_arena_save(utils_arena* a);
+UTILS_DEF void utils_arena_restore(utils_arena* a, utils_arena_save_point save);
+UTILS_DEF utils_scratch utils_scratch_begin_with(const utils_scratch* conflict);
+UTILS_DEF utils_scratch utils_scratch_begin(void);
+UTILS_DEF void utils_scratch_end(utils_scratch s);
+
+UTILS_DEF utils_allocator utils_make_simple_allocator(void);
+UTILS_DEF utils_allocator utils_make_tracking_allocator_from(utils_tracking_allocator* tracker);
+UTILS_DEF utils_allocator utils_make_allocator_from_arena(utils_arena* arena_storage);
+
+#define utils_make_tracking_allocator(tracker) utils_make_tracking_allocator_from((tracker))
+#define UTILS__MAKE_ARENA_ALLOCATOR_DEFAULT() utils_make_allocator_from_arena(&(utils_arena){0})
+
+#define UTILS__MAKE_ALLOCATOR_0() utils_make_simple_allocator()
+
+#define UTILS__MAKE_ALLOCATOR_1(arg)                               \
+  _Generic((arg),                                                  \
+    utils_tracking_allocator*: utils_make_tracking_allocator_from, \
+    utils_arena*: utils_make_allocator_from_arena                  \
+  )(arg)
+
+#define UTILS__GET_MACRO(_0, _1, NAME, ...) NAME
+
+#define utils_make_arena_allocator(...)         \
+  UTILS__GET_MACRO(_ __VA_OPT__(,) __VA_ARGS__, \
+    utils_make_allocator_from_arena,            \
+    UTILS__MAKE_ARENA_ALLOCATOR_DEFAULT)        \
+  (__VA_ARGS__)
+
+#define utils_make_allocator(...)               \
+  UTILS__GET_MACRO(_ __VA_OPT__(,) __VA_ARGS__, \
+    UTILS__MAKE_ALLOCATOR_1,                    \
+    UTILS__MAKE_ALLOCATOR_0)                    \
+  (__VA_ARGS__)
+
+#if defined(__clangd__)
+
+#define utils_defer(code) code
+
+#elif defined(__GNUC__) && !defined(__clang__) && !defined(__cplusplus)
+
+#define UTILS__CONCAT_INTERNAL(x, y) x##y
+#define UTILS__CONCAT(x, y) UTILS__CONCAT_INTERNAL(x, y)
+
+#define UTILS__DEFER_INTERNAL(id, code)                           \
+  void UTILS__CONCAT(utils__defer_func_, id)(void* p) {           \
+    (void)p;                                                      \
+    code;                                                         \
+  }                                                               \
+                                                                  \
+  __attribute__((cleanup(UTILS__CONCAT(utils__defer_func_, id)))) \
+  int UTILS__CONCAT(utils__defer_var_, id) = 0
+
+#define utils_defer(code) UTILS__DEFER_INTERNAL(__COUNTER__, code)
+
+#else
+
+#define utils_defer(...) \
+  static_assert(0, "utils_defer is only supported with GCC that has nested functions support enabled")
+
+#endif
+
+#include <string.h>
+
+typedef struct {
+  usz count;
+  const char* data;
+} utils_str_view;
+
+UTILS_DEF utils_str_view utils_str_view_from_parts(const char* data, usz count);
+UTILS_DEF utils_str_view utils_str_view_chop_while(utils_str_view* sv, int (*p)(int x));
+UTILS_DEF utils_str_view utils_str_view_chop_by_delim(utils_str_view* sv, char delim);
+UTILS_DEF utils_str_view utils_str_view_chop_left(utils_str_view* sv, usz n);
+UTILS_DEF utils_str_view utils_str_view_chop_right(utils_str_view* sv, usz n);
+UTILS_DEF utils_str_view utils_str_view_from_cstr(const char* cstr);
+
+#define utils_str_view_eq(a, b) _Generic((a), \
+  utils_str_view: utils_str_view_eq_sv,       \
+  const char*: utils_str_view_eq_cstr,        \
+  char*: utils_str_view_eq_cstr               \
+)(a, b)
+
+UTILS_DEF bool utils_str_view_eq_sv(utils_str_view a, utils_str_view b);
+UTILS_DEF bool utils_str_view_eq_cstr(utils_str_view sv, const char* cstr);
+
+#define utils_str_view_ends_with(sv, suffix) _Generic((suffix), \
+  utils_str_view: utils_str_view_ends_with_sv,                  \
+  const char*: utils_str_view_ends_with_cstr,                   \
+  char*: utils_str_view_ends_with_cstr                          \
+)(sv, suffix)
+
+UTILS_DEF bool utils_str_view_ends_with_sv(utils_str_view sv, utils_str_view suffix);
+UTILS_DEF bool utils_str_view_ends_with_cstr(utils_str_view sv, const char* cstr);
+
+#define utils_str_view_starts_with(sv, prefix) _Generic((prefix), \
+  utils_str_view: utils_str_view_starts_with_sv,                  \
+  const char*: utils_str_view_starts_with_cstr,                   \
+  char*: utils_str_view_starts_with_cstr                          \
+)(sv, prefix)
+
+UTILS_DEF bool utils_str_view_starts_with_sv(utils_str_view sv, utils_str_view expected_prefix);
+UTILS_DEF bool utils_str_view_starts_with_cstr(utils_str_view sv, const char* cstr);
+
+#define utils_str_view_chop_prefix(sv, prefix) _Generic((prefix), \
+  utils_str_view: utils_str_view_chop_prefix_sv,                  \
+  const char*: utils_str_view_chop_prefix_cstr,                   \
+  char*: utils_str_view_chop_prefix_cstr                          \
+)(sv, prefix)
+
+UTILS_DEF bool utils_str_view_chop_prefix_sv(utils_str_view* sv, utils_str_view prefix);
+UTILS_DEF bool utils_str_view_chop_prefix_cstr(utils_str_view* sv, const char* prefix);
+
+#define utils_str_view_chop_suffix(sv, suffix) _Generic((suffix), \
+  utils_str_view: utils_str_view_chop_suffix_sv,                  \
+  const char*: utils_str_view_chop_suffix_cstr,                   \
+  char*: utils_str_view_chop_suffix_cstr                          \
+)(sv, suffix)
+
+UTILS_DEF bool utils_str_view_chop_suffix_sv(utils_str_view* sv, utils_str_view suffix);
+UTILS_DEF bool utils_str_view_chop_suffix_cstr(utils_str_view* sv, const char* suffix);
+
+UTILS_DEF utils_str_view utils_str_view_trim_left(utils_str_view sv);
+UTILS_DEF utils_str_view utils_str_view_trim_right(utils_str_view sv);
+UTILS_DEF utils_str_view utils_str_view_trim(utils_str_view sv);
+UTILS_DEF int utils_str_view_find(utils_str_view sv, char c);
+
+typedef struct {
+  char* data;
+  usz count;
+  usz capacity;
+  utils_allocator alloc;
+} utils_str_builder;
+
+#define utils_sfmt "%.*s"
+#define utils_sfmtarg(sv) (int)(sv).count, (sv).data
+
+UTILS_DEF bool utils_str_builder_reserve(utils_str_builder* sb, usz additional);
+UTILS_DEF bool utils_str_builder_append_bytes(utils_str_builder* sb, const void* data, usz size);
+UTILS_DEF bool utils_str_builder_append_cstr(utils_str_builder* sb, const char* cstr);
+UTILS_DEF bool utils_str_builder_append_sb(utils_str_builder* sb, const utils_str_builder* other);
+UTILS_DEF bool utils_str_builder_append_sb_value(utils_str_builder* sb, utils_str_builder other);
+UTILS_DEF bool utils_str_builder_append_sv(utils_str_builder* sb, utils_str_view sv);
+UTILS_DEF utils_str_view utils_str_builder_view(const utils_str_builder* sb);
+
+#define utils_str_builder_append(sb, data)                 \
+  _Generic((data),                                         \
+    char*: utils_str_builder_append_cstr,                  \
+    const char*: utils_str_builder_append_cstr,            \
+    utils_str_builder: utils_str_builder_append_sb_value,  \
+    utils_str_builder*: utils_str_builder_append_sb,       \
+    const utils_str_builder*: utils_str_builder_append_sb, \
+    utils_str_view: utils_str_builder_append_sv            \
+  )(sb, data)
+
+UTILS_DEF void utils_str_builder_clear(utils_str_builder* sb);
+UTILS_DEF void utils_str_builder_free(utils_str_builder* sb);
+
+typedef struct {
+  void* data;
+  usz count;
+  usz capacity;
+  utils_allocator alloc;
+} utils_impl_da_base;
+
+#define utils_da(T) struct { \
+  T* data;                   \
+  usz count;                 \
+  usz capacity;              \
+  utils_allocator alloc;     \
+}
+
+UTILS_DEF void* utils_impl_da_base_resize(utils_impl_da_base* arr, usz elem_size, usz new_capacity);
+UTILS_DEF bool utils_impl_da_base_append_impl(utils_impl_da_base* arr, void* value, usz elem_size);
+UTILS_DEF void utils_impl_da_free(utils_impl_da_base* arr);
+
+#define utils_da_append(arr, value)            \
+  ({                                           \
+    typeof(*(arr)->data) utils__tmp = (value); \
+    utils_impl_da_base_append_impl(            \
+      (utils_impl_da_base*)(arr),              \
+      &utils__tmp,                             \
+      sizeof(utils__tmp)                       \
+    );                                         \
+  })
+
+#define utils_da_at(arr, index) ((arr)->data[(index)])
+#define utils_da_last(arr) ((arr)->data[(arr)->count - 1])
+#define utils_da_free(arr) utils_impl_da_free((utils_impl_da_base*)(arr))
+
+#define UTILS__DA_FOREACH_1(arr) UTILS__DA_FOREACH_2(arr, it)
+
+#define UTILS__DA_FOREACH_2(arr, it)                          \
+  for (usz utils__i = 0; utils__i < (arr)->count; ++utils__i) \
+    for (typeof(*(arr)->data) it = (arr)->data[utils__i],     \
+         *utils__once = &it;                                  \
+         utils__once != nil;                                  \
+         utils__once = nil)
+
+#define UTILS__DA_FOREACH_GET(_1, _2, NAME, ...) NAME
+
+#define utils_da_foreach(...) \
+  UTILS__DA_FOREACH_GET(__VA_ARGS__, UTILS__DA_FOREACH_2, UTILS__DA_FOREACH_1)(__VA_ARGS__)
+
+#define UTILS__DA_FOREACH_I_1(arr) UTILS__DA_FOREACH_I_3(arr, idx, it)
+
+#define UTILS__DA_FOREACH_I_3(arr, i, it)          \
+  for (usz i = 0; i < (arr)->count; ++i)           \
+    for (typeof(*(arr)->data) it = (arr)->data[i], \
+         *utils__once = &it;                       \
+         utils__once != nil;                       \
+         utils__once = nil)                        \
+
+#define UTILS__DA_FOREACH_I_GET(_1, _2, _3, NAME, ...) NAME
+
+#define utils_da_foreach_i(...) \
+  UTILS__DA_FOREACH_I_GET(__VA_ARGS__, UTILS__DA_FOREACH_I_3, _, UTILS__DA_FOREACH_I_1)(__VA_ARGS__)
+
+typedef struct {
+  void* data;
+  usz count;
+  usz capacity;
+  utils_allocator alloc;
+} utils_impl_map_base;
+
+#define utils_impl_map_entry(T) struct { \
+  const char* key;                       \
+  T value;                               \
+  bool occupied;                         \
+}
+
+#define utils_map(T) struct {    \
+  utils_impl_map_entry(T)* data; \
+  usz count;                     \
+  usz capacity;                  \
+  utils_allocator alloc;         \
+}
+
+UTILS_DEF bool utils_impl_map_insert_impl(
+  utils_impl_map_base* utils_map,
+  const char* key,
+  void* value,
+  usz elem_size
+);
+UTILS_DEF void* utils_impl_map_get_impl(utils_impl_map_base* utils_map, const char* key, usz elem_size);
+UTILS_DEF void utils_impl_map_free(utils_impl_map_base* utils_map);
+
+#define utils_map_insert(utils_map, k, v) ({           \
+  typeof((utils_map)->data[0].value) utils__tmp = (v); \
+  utils_impl_map_insert_impl(                          \
+    (utils_impl_map_base*)(utils_map),                 \
+    (k),                                               \
+    &utils__tmp,                                       \
+    sizeof((utils_map)->data[0])                       \
+  );                                                   \
+})
+
+#define utils_map_get(utils_map, k)      \
+  ((typeof(&(utils_map)->data[0].value)) \
+    utils_impl_map_get_impl(             \
+      (utils_impl_map_base*)(utils_map), \
+      (k),                               \
+      sizeof((utils_map)->data[0])       \
+    ))
+
+#define utils_map_free(utils_map) \
+  utils_impl_map_free((utils_impl_map_base*)(utils_map))
+
+UTILS_DEF bool utils_read_entire_file(const char* path, utils_str_builder* sb);
+UTILS_DEF bool utils_write_entire_file_cstr(const char* path, const char* data);
+UTILS_DEF bool utils_write_entire_file_sv(const char* path, utils_str_view sv);
+UTILS_DEF bool utils_write_entire_file_sv_ptr(const char* path, utils_str_view* sv);
+UTILS_DEF bool utils_write_entire_file_sb(const char* path, utils_str_builder sb);
+UTILS_DEF bool utils_write_entire_file_sb_ptr(const char* path, utils_str_builder* sb);
+
+#define utils_write_entire_file(path, data)                  \
+  _Generic((data),                                           \
+    char*: utils_write_entire_file_cstr,                     \
+    const char*: utils_write_entire_file_cstr,               \
+    utils_str_view: utils_write_entire_file_sv,              \
+    utils_str_view*: utils_write_entire_file_sv_ptr,         \
+    const utils_str_view*: utils_write_entire_file_sv_ptr,   \
+    utils_str_builder: utils_write_entire_file_sb,           \
+    utils_str_builder*: utils_write_entire_file_sb_ptr,      \
+    const utils_str_builder*: utils_write_entire_file_sb_ptr \
+  )(path, data)
+
+typedef enum utils_flag_type {
+  UTILS_FLAG_BOOL,
+  UTILS_FLAG_STRING,
+  UTILS_FLAG_NUMBER,
+} utils_flag_type;
+
+typedef struct {
+  const char* name;
+  const char* desc;
+  utils_flag_type type;
+  union {
+    bool bool_value;
+    utils_str_view string_value;
+    int number_value;
+  } value;
+  bool is_set;
+} utils_flag;
+
+#define utils_get_flag(pvalue) ((utils_flag*)((char*)(pvalue) - offsetof(utils_flag, value)))
+#define utils_flag_is_set(pvalue) (utils_get_flag(pvalue)->is_set)
+#define utils_flag_name(pvalue) (utils_get_flag(pvalue)->name)
+#define utils_flag_desc(pvalue) (utils_get_flag(pvalue)->desc)
+
+#ifndef UTILS_FLAGS_MAX_FLAGS
+#define UTILS_FLAGS_MAX_FLAGS 64
+#endif
+
+static_assert(UTILS_FLAGS_MAX_FLAGS > 0, "UTILS_FLAGS_MAX_FLAGS must be greater than 0");
+
+typedef struct utils_flags {
+  const char* positional_args_req;
+
+  utils_flag flags[UTILS_FLAGS_MAX_FLAGS];
+  usz flags_count;
+
+  utils_da(utils_str_view) positional_args;
+
+  bool got_help;
+
+  bool _parsed;
+  bool failed_adding;
+
+  utils_allocator alloc;
+} utils_flags;
+
+#define utils_add_flag(a, name, description, def) \
+  _Generic((def),                                 \
+    char*: utils_impl_add_flag_string,            \
+    const char*: utils_impl_add_flag_string,      \
+    utils_str_view: utils_impl_add_flag_str_view, \
+    int: utils_impl_add_flag_int,                 \
+    bool: utils_impl_add_flag_bool                \
+  )(a, name, description, def)
+
+UTILS_DEF utils_str_view* utils_impl_add_flag_string(utils_flags* f, const char* name, const char* description, const char* def);
+UTILS_DEF utils_str_view* utils_impl_add_flag_str_view(utils_flags* f, const char* name, const char* description, utils_str_view def);
+UTILS_DEF int* utils_impl_add_flag_int(utils_flags* f, const char* name, const char* description, int def);
+UTILS_DEF bool* utils_impl_add_flag_bool(utils_flags* f, const char* name, const char* description, bool def);
+
+UTILS_DEF void utils_flags_reset(utils_flags* f);
+UTILS_DEF void utils_flags_print_help(utils_flags* f, const char* prog_name);
+UTILS_DEF bool utils_flags_parse(utils_flags* f, int flagc, char** flagv);
+
+#ifdef UTILS_STRIP_PREFIX
+typedef utils_allocator allocator;
+typedef utils_tracking_allocator tracking_allocator;
+typedef utils_arena_block arena_block;
+typedef utils_arena arena;
+typedef utils_arena_save_point arena_save_point;
+typedef utils_scratch scratch;
+typedef utils_str_view str_view;
+typedef utils_str_builder str_builder;
+typedef utils_flag_type flag_type;
+typedef utils_flag flag;
+typedef utils_flags flags;
+
+#define TODO UTILS_TODO
+#define a_alloc utils_a_alloc
+#define a_new utils_a_new
+#define a_realloc utils_a_realloc
+#define a_free utils_a_free
+#define a_reset utils_a_reset
+#define ARENA_MIN_BLOCK_SIZE UTILS_ARENA_MIN_BLOCK_SIZE
+#define make_tracking_allocator utils_make_tracking_allocator
+#define make_arena_allocator utils_make_arena_allocator
+#define make_allocator utils_make_allocator
+#define defer utils_defer
+#define str_view_eq utils_str_view_eq
+#define str_view_ends_with utils_str_view_ends_with
+#define str_view_starts_with utils_str_view_starts_with
+#define str_view_chop_prefix utils_str_view_chop_prefix
+#define str_view_chop_suffix utils_str_view_chop_suffix
+#define str_view_from_parts utils_str_view_from_parts
+#define str_view_chop_while utils_str_view_chop_while
+#define str_view_chop_by_delim utils_str_view_chop_by_delim
+#define str_view_chop_left utils_str_view_chop_left
+#define str_view_chop_right utils_str_view_chop_right
+#define str_view_from_cstr utils_str_view_from_cstr
+#define str_view_eq_sv utils_str_view_eq_sv
+#define str_view_eq_cstr utils_str_view_eq_cstr
+#define str_view_ends_with_sv utils_str_view_ends_with_sv
+#define str_view_ends_with_cstr utils_str_view_ends_with_cstr
+#define str_view_starts_with_sv utils_str_view_starts_with_sv
+#define str_view_starts_with_cstr utils_str_view_starts_with_cstr
+#define str_view_chop_prefix_sv utils_str_view_chop_prefix_sv
+#define str_view_chop_prefix_cstr utils_str_view_chop_prefix_cstr
+#define str_view_chop_suffix_sv utils_str_view_chop_suffix_sv
+#define str_view_chop_suffix_cstr utils_str_view_chop_suffix_cstr
+#define str_view_trim_left utils_str_view_trim_left
+#define str_view_trim_right utils_str_view_trim_right
+#define str_view_trim utils_str_view_trim
+#define str_view_find utils_str_view_find
+#define str_builder_reserve utils_str_builder_reserve
+#define str_builder_append_bytes utils_str_builder_append_bytes
+#define str_builder_append_cstr utils_str_builder_append_cstr
+#define str_builder_append_sb utils_str_builder_append_sb
+#define str_builder_append_sb_value utils_str_builder_append_sb_value
+#define str_builder_append_sv utils_str_builder_append_sv
+#define str_builder_view utils_str_builder_view
+#define str_builder_append utils_str_builder_append
+#define str_builder_clear utils_str_builder_clear
+#define str_builder_free utils_str_builder_free
+#define sfmt utils_sfmt
+#define sfmtarg utils_sfmtarg
+#define da utils_da
+#define da_append utils_da_append
+#define da_at utils_da_at
+#define da_last utils_da_last
+#define da_free utils_da_free
+#define da_foreach utils_da_foreach
+#define da_foreach_i utils_da_foreach_i
+#define map utils_map
+#define map_insert utils_map_insert
+#define map_get utils_map_get
+#define map_free utils_map_free
+#define read_entire_file utils_read_entire_file
+#define write_entire_file_cstr utils_write_entire_file_cstr
+#define write_entire_file_sv utils_write_entire_file_sv
+#define write_entire_file_sv_ptr utils_write_entire_file_sv_ptr
+#define write_entire_file_sb utils_write_entire_file_sb
+#define write_entire_file_sb_ptr utils_write_entire_file_sb_ptr
+#define write_entire_file utils_write_entire_file
+#define get_flag utils_get_flag
+#define flag_is_set utils_flag_is_set
+#define flag_name utils_flag_name
+#define flag_desc utils_flag_desc
+#define FLAGS_MAX_FLAGS UTILS_FLAGS_MAX_FLAGS
+#define BOOL UTILS_FLAG_BOOL
+#define STRING UTILS_FLAG_STRING
+#define NUMBER UTILS_FLAG_NUMBER
+#define add_flag utils_add_flag
+#define flags_reset utils_flags_reset
+#define flags_print_help utils_flags_print_help
+#define flags_parse utils_flags_parse
+#endif
+
+#ifdef UTILS_IMPLEMENTATION
+
+#undef UTILS_DEF
+#define UTILS_DEF
+
+#include <ctype.h>
+#include <limits.h>
+#include <stdio.h>
+
+struct utils_arena_block {
+  utils_arena_block* next;
+  utils_arena_block* prev;
+  usz capacity;
+  usz used;
+  bool dedicated;
+};
+
+static thread_local utils_arena utils__scratch_arenas[2];
+
+static void* utils__libc_alloc(void* ctx, usz size) {
+  (void)ctx;
+  return malloc(size);
+}
+
+static void* utils__libc_realloc(void* ctx, void* ptr, usz new_size) {
+  (void)ctx;
+  return realloc(ptr, new_size);
+}
+
+static void utils__libc_free(void* ctx, void* ptr) {
+  (void)ctx;
+  free(ptr);
+}
+
+static void utils__libc_reset(void* ctx) {
+  (void)ctx;
+  assert(0 && "libc_allocator does not support reset");
+}
+
+static bool utils__tracking_allocator_resize(utils_tracking_allocator* tracker) {
   usz new_capacity = tracker->capacity * 2;
-
   void** new_allocations = realloc(tracker->allocations, sizeof(void*) * new_capacity);
 
   if (new_allocations == nil) {
@@ -206,18 +671,16 @@ static bool _tracking_allocator_resize(tracking_allocator* tracker) {
 
   tracker->allocations = new_allocations;
   tracker->capacity = new_capacity;
-
   return true;
 }
 
-bool tracking_allocator_track_ptr(tracking_allocator* tracker, void* ptr) {
+UTILS_DEF bool utils_tracking_allocator_track_ptr(utils_tracking_allocator* tracker, void* ptr) {
   if (ptr == nil) {
     return false;
   }
 
   if (tracker->allocations == nil) {
     tracker->capacity = 16;
-
     tracker->allocations = malloc(sizeof(void*) * tracker->capacity);
 
     if (tracker->allocations == nil) {
@@ -227,38 +690,34 @@ bool tracking_allocator_track_ptr(tracking_allocator* tracker, void* ptr) {
   }
 
   if (tracker->count >= tracker->capacity) {
-    if (!_tracking_allocator_resize(tracker)) {
+    if (!utils__tracking_allocator_resize(tracker)) {
       return false;
     }
   }
 
-  tracker->allocations[tracker->count++ ] = ptr;
-
+  tracker->allocations[tracker->count++] = ptr;
   return true;
 }
 
-void tracking_allocator_untrack_ptr(tracking_allocator* tracker, void* ptr) {
+UTILS_DEF void utils_tracking_allocator_untrack_ptr(utils_tracking_allocator* tracker, void* ptr) {
   for (usz i = 0; i < tracker->count; i++) {
     if (tracker->allocations[i] == ptr) {
       tracker->allocations[i] = tracker->allocations[tracker->count - 1];
-
       tracker->count -= 1;
-
       return;
     }
   }
 }
 
-static void* _tracked_alloc(void* ctx, usz size) {
-  tracking_allocator* tracker = ctx;
-
+static void* utils__tracked_alloc(void* ctx, usz size) {
+  utils_tracking_allocator* tracker = ctx;
   void* ptr = malloc(size);
 
   if (ptr == nil) {
     return nil;
   }
 
-  if (!tracking_allocator_track_ptr(tracker, ptr)) {
+  if (!utils_tracking_allocator_track_ptr(tracker, ptr)) {
     free(ptr);
     return nil;
   }
@@ -266,18 +725,17 @@ static void* _tracked_alloc(void* ctx, usz size) {
   return ptr;
 }
 
-static void* _tracked_realloc(void* ctx, void* ptr, usz new_size) {
-  tracking_allocator* tracker = ctx;
+static void* utils__tracked_realloc(void* ctx, void* ptr, usz new_size) {
+  utils_tracking_allocator* tracker = ctx;
 
   if (ptr == nil) {
-    void* new_ptr =
-      malloc(new_size);
+    void* new_ptr = malloc(new_size);
 
     if (new_ptr == nil) {
       return nil;
     }
 
-    if (!tracking_allocator_track_ptr(tracker, new_ptr)) {
+    if (!utils_tracking_allocator_track_ptr(tracker, new_ptr)) {
       free(new_ptr);
       return nil;
     }
@@ -294,7 +752,6 @@ static void* _tracked_realloc(void* ctx, void* ptr, usz new_size) {
       }
 
       tracker->allocations[i] = new_ptr;
-
       return new_ptr;
     }
   }
@@ -302,59 +759,32 @@ static void* _tracked_realloc(void* ctx, void* ptr, usz new_size) {
   return nil;
 }
 
-static void _tracked_free(void* ctx, void* ptr) {
-  tracking_allocator* tracker = ctx;
-
-  tracking_allocator_untrack_ptr(tracker, ptr);
-
+static void utils__tracked_free(void* ctx, void* ptr) {
+  utils_tracking_allocator* tracker = ctx;
+  utils_tracking_allocator_untrack_ptr(tracker, ptr);
   free(ptr);
 }
 
-static void _tracking_allocator_reset(void* ctx) {
-  tracking_allocator* tracker = ctx;
+static void utils__tracking_allocator_reset(void* ctx) {
+  utils_tracking_allocator* tracker = ctx;
+
   for (usz i = 0; i < tracker->count; i++) {
     free(tracker->allocations[i]);
   }
 
   free(tracker->allocations);
-
   tracker->allocations = nil;
   tracker->count = 0;
   tracker->capacity = 0;
 }
 
-typedef struct arena_block arena_block;
-struct arena_block {
-  arena_block* next;
-  arena_block* prev;
-  usz capacity;
-  usz used;
-  bool dedicated;
-};
-
-typedef struct {
-  arena_block* block;
-  usz size;
-} arena_header;
-
-typedef struct {
-  arena_block* first;
-  arena_block* current;
-  usz block_size;
-} arena;
-
-#ifndef ARENA_MIN_BLOCK_SIZE
-#define ARENA_MIN_BLOCK_SIZE 256
-#endif
-
-static usz _arena_align_up(usz size) {
+static usz utils__arena_align_up(usz size) {
   usz align = sizeof(void*) - 1;
-
   return (size + align) & ~align;
 }
 
-static arena_block* _arena_new_block(usz capacity, bool dedicated) {
-  arena_block* block = malloc(sizeof(arena_block) + capacity);
+static utils_arena_block* utils__arena_new_block(usz capacity, bool dedicated) {
+  utils_arena_block* block = malloc(sizeof(utils_arena_block) + capacity);
 
   if (block == nil) {
     return nil;
@@ -365,11 +795,10 @@ static arena_block* _arena_new_block(usz capacity, bool dedicated) {
   block->capacity = capacity;
   block->used = 0;
   block->dedicated = dedicated;
-
   return block;
 }
 
-static void _arena_link_after(arena_block* prev, arena_block* block) {
+static void utils__arena_link_after(utils_arena_block* prev, utils_arena_block* block) {
   block->prev = prev;
   block->next = prev->next;
 
@@ -380,36 +809,36 @@ static void _arena_link_after(arena_block* prev, arena_block* block) {
   prev->next = block;
 }
 
-static void _arena_release_block(arena* arena, arena_block* block) {
+static void utils__arena_release_block(utils_arena* a, utils_arena_block* block) {
   if (block->prev != nil) {
     block->prev->next = block->next;
   } else {
-    arena->first = block->next;
+    a->first = block->next;
   }
 
   if (block->next != nil) {
     block->next->prev = block->prev;
   }
 
-  if (arena->current == block) {
-    arena->current = block->prev;
+  if (a->current == block) {
+    a->current = block->prev;
   }
 
   free(block);
 }
 
-static void* _arena_alloc(void* ctx, usz size) {
-  arena* a = ctx;
-  size = _arena_align_up(size);
+static void* utils__arena_alloc(void* ctx, usz size) {
+  utils_arena* a = ctx;
+  size = utils__arena_align_up(size);
 
-  usz total_size = _arena_align_up(sizeof(arena_header)) + size;
+  usz total_size = utils__arena_align_up(sizeof(utils_arena_save_point)) + size;
 
-  if (a->block_size < ARENA_MIN_BLOCK_SIZE) {
-    a->block_size = ARENA_MIN_BLOCK_SIZE;
+  if (a->block_size < UTILS_ARENA_MIN_BLOCK_SIZE) {
+    a->block_size = UTILS_ARENA_MIN_BLOCK_SIZE;
   }
 
   if (a->current == nil) {
-    arena_block* block = _arena_new_block(a->block_size, false);
+    utils_arena_block* block = utils__arena_new_block(a->block_size, false);
 
     if (block == nil) {
       return nil;
@@ -420,21 +849,18 @@ static void* _arena_alloc(void* ctx, usz size) {
   }
 
   if (total_size > a->current->capacity / 2) {
-    arena_block* block = _arena_new_block(total_size, true);
+    utils_arena_block* block = utils__arena_new_block(total_size, true);
 
     if (block == nil) {
       return nil;
     }
 
-    _arena_link_after(a->current, block);
+    utils__arena_link_after(a->current, block);
 
-    arena_header* header = (arena_header*)(block + 1);
-
+    utils_arena_save_point* header = (utils_arena_save_point*)(block + 1);
     header->block = block;
-    header->size = size;
-
+    header->used = size;
     block->used = total_size;
-
     return header + 1;
   }
 
@@ -445,42 +871,37 @@ static void* _arena_alloc(void* ctx, usz size) {
       capacity = total_size;
     }
 
-    arena_block* block = _arena_new_block(capacity, false);
+    utils_arena_block* block = utils__arena_new_block(capacity, false);
 
     if (block == nil) {
       return nil;
     }
 
-    _arena_link_after(a->current, block);
-
+    utils__arena_link_after(a->current, block);
     a->current = block;
   }
 
-  arena_header* header = (arena_header*)((u8*)(a->current + 1) + a->current->used);
-
+  utils_arena_save_point* header = (utils_arena_save_point*)((u8*)(a->current + 1) + a->current->used);
   header->block = a->current;
-  header->size = size;
-
+  header->used = size;
   a->current->used += total_size;
-
   return header + 1;
 }
 
-static usz _usz_min(usz a, usz b) {
+static usz utils__usz_min(usz a, usz b) {
   return a < b ? a : b;
 }
 
-static void _arena_free(void* ctx, void* ptr) {
-  arena* a = ctx;
+static void utils__arena_free(void* ctx, void* ptr) {
+  utils_arena* a = ctx;
 
   if (ptr == nil) {
     return;
   }
 
-  arena_header* header = (arena_header*)ptr - 1;
-  arena_block* block = header->block;
-
-  usz total_size = _arena_align_up(sizeof(arena_header)) + header->size;
+  utils_arena_save_point* header = (utils_arena_save_point*)ptr - 1;
+  utils_arena_block* block = header->block;
+  usz total_size = utils__arena_align_up(sizeof(utils_arena_save_point)) + header->used;
 
   u8* end = (u8*)header + total_size;
   u8* block_end = (u8*)(block + 1) + block->used;
@@ -496,25 +917,25 @@ static void _arena_free(void* ctx, void* ptr) {
   }
 
   if (block->dedicated) {
-    _arena_release_block(a, block);
+    utils__arena_release_block(a, block);
   } else if (block == a->current && block->prev != nil) {
-    _arena_release_block(a, block);
+    utils__arena_release_block(a, block);
   }
 }
 
-static void* _arena_realloc(void* ctx, void* ptr, usz new_size) {
+static void* utils__arena_realloc(void* ctx, void* ptr, usz new_size) {
   if (ptr == nil) {
-    return _arena_alloc(ctx, new_size);
+    return utils__arena_alloc(ctx, new_size);
   }
 
-  new_size = _arena_align_up(new_size);
+  new_size = utils__arena_align_up(new_size);
 
-  arena_header* header = (arena_header*)ptr - 1;
-  arena_block* block = header->block;
+  utils_arena_save_point* header = (utils_arena_save_point*)ptr - 1;
+  utils_arena_block* block = header->block;
 
-  usz old_size = header->size;
-  usz old_total = _arena_align_up(sizeof(arena_header)) + old_size;
-  usz new_total = _arena_align_up(sizeof(arena_header)) + new_size;
+  usz old_size = header->used;
+  usz old_total = utils__arena_align_up(sizeof(utils_arena_save_point)) + old_size;
+  usz new_total = utils__arena_align_up(sizeof(utils_arena_save_point)) + new_size;
 
   u8* end = (u8*)header + old_total;
   u8* block_end = (u8*)(block + 1) + block->used;
@@ -524,35 +945,29 @@ static void* _arena_realloc(void* ctx, void* ptr, usz new_size) {
 
     if (used_without_this + new_total <= block->capacity) {
       block->used = used_without_this + new_total;
-      header->size = new_size;
-
+      header->used = new_size;
       return ptr;
     }
   }
 
-  void* new_ptr = _arena_alloc(ctx, new_size);
+  void* new_ptr = utils__arena_alloc(ctx, new_size);
 
   if (new_ptr == nil) {
     return nil;
   }
 
-  memcpy(new_ptr, ptr, _usz_min(old_size, new_size));
-
-  _arena_free(ctx, ptr);
-
+  memcpy(new_ptr, ptr, utils__usz_min(old_size, new_size));
+  utils__arena_free(ctx, ptr);
   return new_ptr;
 }
 
-static void _arena_reset(void* ctx) {
-  arena* a = ctx;
-
-  arena_block* block = a->first;
+static void utils__arena_reset(void* ctx) {
+  utils_arena* a = ctx;
+  utils_arena_block* block = a->first;
 
   while (block != nil) {
-    arena_block* next = block->next;
-
+    utils_arena_block* next = block->next;
     free(block);
-
     block = next;
   }
 
@@ -560,79 +975,53 @@ static void _arena_reset(void* ctx) {
   a->current = nil;
 }
 
-static allocator _make_simple_allocator(void) {
-  return (allocator) {
+UTILS_DEF utils_allocator utils_make_simple_allocator(void) {
+  return (utils_allocator){
     .ctx = nil,
-    .alloc = _libc_alloc,
-    .realloc = _libc_realloc,
-    .free = _libc_free,
-    .reset = _libc_reset,
+    .alloc = utils__libc_alloc,
+    .realloc = utils__libc_realloc,
+    .free = utils__libc_free,
+    .reset = utils__libc_reset,
   };
 }
 
-static allocator _make_tracking_allocator(tracking_allocator* tracker) {
-  return (allocator) {
+UTILS_DEF utils_allocator utils_make_tracking_allocator_from(utils_tracking_allocator* tracker) {
+  return (utils_allocator){
     .ctx = tracker,
-    .alloc = _tracked_alloc,
-    .realloc = _tracked_realloc,
-    .free = _tracked_free,
-    .reset = _tracking_allocator_reset,
+    .alloc = utils__tracked_alloc,
+    .realloc = utils__tracked_realloc,
+    .free = utils__tracked_free,
+    .reset = utils__tracking_allocator_reset,
   };
 }
 
-static allocator _make_allocator_arena(arena* arena) {
-  if (arena->block_size < ARENA_MIN_BLOCK_SIZE) {
-    arena->block_size = ARENA_MIN_BLOCK_SIZE;
+UTILS_DEF utils_allocator utils_make_allocator_from_arena(utils_arena* arena_storage) {
+  if (arena_storage->block_size < UTILS_ARENA_MIN_BLOCK_SIZE) {
+    arena_storage->block_size = UTILS_ARENA_MIN_BLOCK_SIZE;
   }
 
-  return (allocator) {
-    .ctx = arena,
-    .alloc = _arena_alloc,
-    .realloc = _arena_realloc,
-    .free = _arena_free,
-    .reset = _arena_reset,
+  return (utils_allocator){
+    .ctx = arena_storage,
+    .alloc = utils__arena_alloc,
+    .realloc = utils__arena_realloc,
+    .free = utils__arena_free,
+    .reset = utils__arena_reset,
   };
 }
 
-#define make_tracking_allocator(tracker) _make_tracking_allocator(&(tracking_allocator){})
-#define make_arena_allocator() _make_allocator_arena(&(arena){})
-
-#define _MAKE_ALLOCATOR_0() \
-    _make_simple_allocator()
-
-#define _MAKE_ALLOCATOR_1(arg) \
-    _Generic((arg), \
-        tracking_allocator*: _make_tracking_allocator, \
-        arena*: _make_allocator_arena \
-    )(arg)
-
-#define GET_MACRO(_0, _1, NAME, ...) NAME
-
-#define make_allocator(...) \
-    GET_MACRO(_ __VA_OPT__(,) __VA_ARGS__, \
-              _MAKE_ALLOCATOR_1, \
-              _MAKE_ALLOCATOR_0) \
-    (__VA_ARGS__)
-
-
-typedef struct {
-  arena_block* block;
-  usz used;
-} arena_save_point;
-
-arena_save_point arena_save(arena* a) {
-  return (arena_save_point){
+UTILS_DEF utils_arena_save_point utils_arena_save(utils_arena* a) {
+  return (utils_arena_save_point){
     .block = a->current,
     .used = a->current ? a->current->used : 0,
   };
 }
 
-void arena_restore(arena* a, arena_save_point save) {
-  arena_block *block = a->current;
+UTILS_DEF void utils_arena_restore(utils_arena* a, utils_arena_save_point save) {
+  utils_arena_block* block = a->current;
 
   while (block && block != save.block) {
-    arena_block *prev = block->prev;
-    _arena_release_block(a, block);
+    utils_arena_block* prev = block->prev;
+    utils__arena_release_block(a, block);
     block = prev;
   }
 
@@ -643,347 +1032,216 @@ void arena_restore(arena* a, arena_save_point save) {
   }
 }
 
-typedef struct {
-  arena* backing;
-  arena_save_point save;
-  allocator alloc;
-} scratch;
-
-thread_local arena _scratch_arenas[2];
-
-static bool _scratch_has_conflict(arena* a, arena** conflicts, usz count) {
-  for (usz i = 0; i < count; ++i) {
-    if (conflicts[i] == a) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-scratch scratch_begin_with(const scratch *conflict) {
-  arena *a = nil;
+UTILS_DEF utils_scratch utils_scratch_begin_with(const utils_scratch* conflict) {
+  utils_arena* a = nil;
 
   for (usz i = 0; i < 2; ++i) {
-    if (conflict == nil || &_scratch_arenas[i] != conflict->backing) {
-      a = &_scratch_arenas[i];
+    if (conflict == nil || &utils__scratch_arenas[i] != conflict->backing) {
+      a = &utils__scratch_arenas[i];
       break;
     }
   }
 
   assert(a != nil);
 
-  return (scratch){
-    .backing= a,
-    .save = arena_save(a),
-    .alloc = make_allocator(a),
+  return (utils_scratch){
+    .backing = a,
+    .save = utils_arena_save(a),
+    .alloc = utils_make_allocator(a),
   };
 }
 
-scratch scratch_begin(void) {
-  return scratch_begin_with(nil);
+UTILS_DEF utils_scratch utils_scratch_begin(void) {
+  return utils_scratch_begin_with(nil);
 }
 
-void scratch_end(scratch s) {
-  arena_restore(s.backing, s.save);
+UTILS_DEF void utils_scratch_end(utils_scratch s) {
+  utils_arena_restore(s.backing, s.save);
 }
 
-#endif // USE_ALLOC_UTILS
-
-
-
-#ifdef USE_DEFER_UTILS
-
-
-#if defined(__clangd__)
-
-// we want clangd lsp to typecheck the code but not error because we use nexted funcs
-// obviously, this is not correct, because code would run immediately, but because it's
-// just the lsp and not the actual compiler, it's fine
-#define defer(code) code
-
-#elif defined(__GNUC__) && !defined(__clang__) && !defined(__cplusplus)
-
-#define _CONCAT_INTERNAL(x, y) x##y
-#define _CONCAT(x, y) _CONCAT_INTERNAL(x, y)
-
-#define _DEFER_INTERNAL(id, code)                     \
-  void _CONCAT(_defer_func_, id)(void* _unused) {     \
-    (void)_unused;                                    \
-    code;                                             \
-  }                                                   \
-                                                      \
-  __attribute__((cleanup(_CONCAT(_defer_func_, id)))) \
-  int _CONCAT(_defer_var_, id) = 0
-
-#define defer(code) _DEFER_INTERNAL(__COUNTER__, code)
-
-#else
-
-#define defer(...) \
-  static_assert(0, "defer is only supported with GCC that has nested functions support enabled")
-
-#endif
-
-#endif // USE_DEFER_UTILS
-
-
-
-#ifdef USE_STR_UTILS
-
-/*
-Taken from tsoding's nob.h
-*/
-
-#include <stdio.h>
-#include <string.h>
-#include <ctype.h>
-
-typedef struct {
-  usz count;
-  const char* data;
-} str_view;
-
-str_view str_view_from_parts(const char* data, usz count) {
-  str_view sv;
+UTILS_DEF utils_str_view utils_str_view_from_parts(const char* data, usz count) {
+  utils_str_view sv;
   sv.count = count;
   sv.data = data;
   return sv;
 }
 
-str_view str_view_chop_while(str_view* sv, int (*p)(int x)) {
+UTILS_DEF utils_str_view utils_str_view_chop_while(utils_str_view* sv, int (*p)(int x)) {
   usz i = 0;
+
   while (i < sv->count && p(sv->data[i])) {
     i += 1;
   }
 
-  str_view result = str_view_from_parts(sv->data, i);
+  utils_str_view result = utils_str_view_from_parts(sv->data, i);
   sv->count -= i;
-  sv->data  += i;
-
+  sv->data += i;
   return result;
 }
 
-str_view str_view_chop_by_delim(str_view* sv, char delim) {
+UTILS_DEF utils_str_view utils_str_view_chop_by_delim(utils_str_view* sv, char delim) {
   usz i = 0;
+
   while (i < sv->count && sv->data[i] != delim) {
     i += 1;
   }
 
-  str_view result = str_view_from_parts(sv->data, i);
+  utils_str_view result = utils_str_view_from_parts(sv->data, i);
 
   if (i < sv->count) {
     sv->count -= i + 1;
-    sv->data  += i + 1;
+    sv->data += i + 1;
   } else {
     sv->count -= i;
-    sv->data  += i;
+    sv->data += i;
   }
 
   return result;
 }
 
-str_view str_view_chop_left(str_view* sv, usz n) {
+UTILS_DEF utils_str_view utils_str_view_chop_left(utils_str_view* sv, usz n) {
   if (n > sv->count) {
     n = sv->count;
   }
 
-  str_view result = str_view_from_parts(sv->data, n);
-
-  sv->data  += n;
+  utils_str_view result = utils_str_view_from_parts(sv->data, n);
+  sv->data += n;
   sv->count -= n;
-
   return result;
 }
 
-str_view str_view_chop_right(str_view* sv, usz n) {
+UTILS_DEF utils_str_view utils_str_view_chop_right(utils_str_view* sv, usz n) {
   if (n > sv->count) {
     n = sv->count;
   }
 
-  str_view result = str_view_from_parts(sv->data + sv->count - n, n);
-
+  utils_str_view result = utils_str_view_from_parts(sv->data + sv->count - n, n);
   sv->count -= n;
-
   return result;
 }
 
-str_view str_view_from_cstr(const char* cstr) {
-  return str_view_from_parts(cstr, strlen(cstr));
+UTILS_DEF utils_str_view utils_str_view_from_cstr(const char* cstr) {
+  return utils_str_view_from_parts(cstr, strlen(cstr));
 }
 
-#define str_view_eq(a, b) _Generic((a), \
-  str_view: str_view_eq_sv, \
-  const char*: str_view_eq_cstr, \
-  char*: str_view_eq_cstr \
-)(a, b)
-
-bool str_view_eq_sv(str_view a, str_view b) {
+UTILS_DEF bool utils_str_view_eq_sv(utils_str_view a, utils_str_view b) {
   if (a.count != b.count) {
     return false;
-  } else {
-    return memcmp(a.data, b.data, a.count) == 0;
   }
+
+  return memcmp(a.data, b.data, a.count) == 0;
 }
 
-bool str_view_eq_cstr(str_view sv, const char* cstr) {
-  return str_view_eq_sv(sv, str_view_from_cstr(cstr));
+UTILS_DEF bool utils_str_view_eq_cstr(utils_str_view sv, const char* cstr) {
+  return utils_str_view_eq_sv(sv, utils_str_view_from_cstr(cstr));
 }
 
-#define str_view_ends_with(sv, suffix) _Generic((suffix), \
-  str_view: str_view_ends_with_sv, \
-  const char*: str_view_ends_with_cstr, \
-  char*: str_view_ends_with_cstr \
-)(sv, suffix)
-
-bool str_view_ends_with_sv(str_view sv, str_view suffix) {
+UTILS_DEF bool utils_str_view_ends_with_sv(utils_str_view sv, utils_str_view suffix) {
   if (sv.count >= suffix.count) {
-    str_view sv_tail = {
+    utils_str_view sv_tail = {
       .count = suffix.count,
       .data = sv.data + sv.count - suffix.count,
     };
-    return str_view_eq_sv(sv_tail, suffix);
+    return utils_str_view_eq_sv(sv_tail, suffix);
   }
+
   return false;
 }
 
-bool str_view_ends_with_cstr(str_view sv, const char* cstr) {
-  return str_view_ends_with_sv(sv, str_view_from_cstr(cstr));
+UTILS_DEF bool utils_str_view_ends_with_cstr(utils_str_view sv, const char* cstr) {
+  return utils_str_view_ends_with_sv(sv, utils_str_view_from_cstr(cstr));
 }
 
-#define str_view_starts_with(sv, prefix) _Generic((prefix), \
-  str_view: str_view_starts_with_sv, \
-  const char*: str_view_starts_with_cstr, \
-  char*: str_view_starts_with_cstr \
-)(sv, prefix)
-
-bool str_view_starts_with_sv(str_view sv, str_view expected_prefix) {
+UTILS_DEF bool utils_str_view_starts_with_sv(utils_str_view sv, utils_str_view expected_prefix) {
   if (expected_prefix.count <= sv.count) {
-    str_view actual_prefix = str_view_from_parts(sv.data, expected_prefix.count);
-    return str_view_eq_sv(expected_prefix, actual_prefix);
+    utils_str_view actual_prefix = utils_str_view_from_parts(sv.data, expected_prefix.count);
+    return utils_str_view_eq_sv(expected_prefix, actual_prefix);
   }
 
   return false;
 }
 
-bool str_view_starts_with_cstr(str_view sv, const char* cstr) {
-  return str_view_starts_with_sv(sv, str_view_from_cstr(cstr));
+UTILS_DEF bool utils_str_view_starts_with_cstr(utils_str_view sv, const char* cstr) {
+  return utils_str_view_starts_with_sv(sv, utils_str_view_from_cstr(cstr));
 }
 
-#define str_view_chop_prefix(sv, prefix) _Generic((prefix), \
-  str_view: str_view_chop_prefix_sv, \
-  const char*: str_view_chop_prefix_cstr, \
-  char*: str_view_chop_prefix_cstr \
-)(sv, prefix)
-
-bool str_view_chop_prefix_sv(str_view* sv, str_view prefix) {
-  if (str_view_starts_with_sv(*sv, prefix)) {
-    str_view_chop_left(sv, prefix.count);
+UTILS_DEF bool utils_str_view_chop_prefix_sv(utils_str_view* sv, utils_str_view prefix) {
+  if (utils_str_view_starts_with_sv(*sv, prefix)) {
+    utils_str_view_chop_left(sv, prefix.count);
     return true;
   }
+
   return false;
 }
 
-bool str_view_chop_prefix_cstr(str_view* sv, const char* prefix) {
-  return str_view_chop_prefix_sv(sv, str_view_from_cstr(prefix));
+UTILS_DEF bool utils_str_view_chop_prefix_cstr(utils_str_view* sv, const char* prefix) {
+  return utils_str_view_chop_prefix_sv(sv, utils_str_view_from_cstr(prefix));
 }
 
-#define str_view_chop_suffix(sv, suffix) _Generic((suffix), \
-  str_view: str_view_chop_suffix_sv, \
-  const char*: str_view_chop_suffix_cstr, \
-  char*: str_view_chop_suffix_cstr \
-)(sv, suffix)
-
-bool str_view_chop_suffix_sv(str_view* sv, str_view suffix) {
-  if (str_view_ends_with(*sv, suffix)) {
-    str_view_chop_right(sv, suffix.count);
+UTILS_DEF bool utils_str_view_chop_suffix_sv(utils_str_view* sv, utils_str_view suffix) {
+  if (utils_str_view_ends_with(*sv, suffix)) {
+    utils_str_view_chop_right(sv, suffix.count);
     return true;
   }
+
   return false;
 }
 
-bool str_view_chop_suffix_cstr(str_view* sv, const char* suffix) {
-  return str_view_chop_suffix_sv(sv, str_view_from_cstr(suffix));
+UTILS_DEF bool utils_str_view_chop_suffix_cstr(utils_str_view* sv, const char* suffix) {
+  return utils_str_view_chop_suffix_sv(sv, utils_str_view_from_cstr(suffix));
 }
 
-str_view str_view_trim_left(str_view sv) {
+UTILS_DEF utils_str_view utils_str_view_trim_left(utils_str_view sv) {
   usz i = 0;
-  while (i < sv.count && isspace(sv.data[i])) {
+
+  while (i < sv.count && isspace((unsigned char)sv.data[i])) {
     i += 1;
   }
 
-  return str_view_from_parts(sv.data + i, sv.count - i);
+  return utils_str_view_from_parts(sv.data + i, sv.count - i);
 }
 
-str_view str_view_trim_right(str_view sv) {
+UTILS_DEF utils_str_view utils_str_view_trim_right(utils_str_view sv) {
   usz i = 0;
-  while (i < sv.count && isspace(sv.data[sv.count - 1 - i])) {
+
+  while (i < sv.count && isspace((unsigned char)sv.data[sv.count - 1 - i])) {
     i += 1;
   }
 
-  return str_view_from_parts(sv.data, sv.count - i);
+  return utils_str_view_from_parts(sv.data, sv.count - i);
 }
 
-str_view str_view_trim(str_view sv) {
-  return str_view_trim_right(str_view_trim_left(sv));
+UTILS_DEF utils_str_view utils_str_view_trim(utils_str_view sv) {
+  return utils_str_view_trim_right(utils_str_view_trim_left(sv));
 }
 
-int str_view_find(str_view sv, char c) {
+UTILS_DEF int utils_str_view_find(utils_str_view sv, char c) {
   for (usz i = 0; i < sv.count; ++i) {
     if (sv.data[i] == c) {
       return (int)i;
     }
   }
+
   return -1;
 }
 
-typedef struct {
-  char* data;
-  usz count;
-  usz capacity;
-
-#ifdef USE_ALLOC_UTILS
-  allocator alloc;
-#endif
-} str_builder;
-
-#define sfmt "%.*s"
-
-#define sfmtarg(sv) (int)(sv).count, (sv).data
-
-#ifdef USE_ALLOC_UTILS
-
-static void _str_builder_ensure_allocator(str_builder* sb) {
+static void utils__str_builder_ensure_allocator(utils_str_builder* sb) {
   if (sb->alloc.alloc == nil) {
-    sb->alloc = make_allocator();
+    sb->alloc = utils_make_allocator();
   }
 }
 
-#define _str_builder_realloc(sb, new_capacity) \
-  sb->alloc.realloc(sb->alloc.ctx, sb->data, new_capacity)
+#define UTILS__STR_BUILDER_REALLOC(sb, new_capacity) \
+  (sb)->alloc.realloc((sb)->alloc.ctx, (sb)->data, (new_capacity))
 
-#define _str_builder_free(sb, ptr) \
+#define UTILS__STR_BUILDER_FREE(sb, ptr) \
   do { \
     if ((ptr) != nil) { \
-      sb->alloc.free(sb->alloc.ctx, (ptr)); \
+      (sb)->alloc.free((sb)->alloc.ctx, (ptr)); \
     } \
   } while (0)
 
-#else
-
-static void _str_builder_ensure_allocator(str_builder* sb) {
-  (void)sb;
-}
-
-#define _str_builder_realloc(sb, new_capacity) \
-  realloc(sb->data, new_capacity)
-
-#define _str_builder_free(sb, ptr) \
-  free(ptr)
-
-#endif
-
-bool str_builder_reserve(str_builder* sb, usz additional) {
+UTILS_DEF bool utils_str_builder_reserve(utils_str_builder* sb, usz additional) {
   usz required = sb->count + additional + 1;
 
   if (required <= sb->capacity) {
@@ -1002,9 +1260,9 @@ bool str_builder_reserve(str_builder* sb, usz additional) {
     new_capacity = next;
   }
 
-  _str_builder_ensure_allocator(sb);
+  utils__str_builder_ensure_allocator(sb);
 
-  char* new_data = _str_builder_realloc(sb, new_capacity);
+  char* new_data = UTILS__STR_BUILDER_REALLOC(sb, new_capacity);
 
   if (new_data == nil) {
     return false;
@@ -1012,55 +1270,41 @@ bool str_builder_reserve(str_builder* sb, usz additional) {
 
   sb->data = new_data;
   sb->capacity = new_capacity;
-
   return true;
 }
 
-bool str_builder_append_bytes(str_builder* sb, const void* data, usz size) {
-  if (!str_builder_reserve(sb, size)) {
+UTILS_DEF bool utils_str_builder_append_bytes(utils_str_builder* sb, const void* data, usz size) {
+  if (!utils_str_builder_reserve(sb, size)) {
     return false;
   }
 
   memcpy(sb->data + sb->count, data, size);
-
   sb->count += size;
-
   sb->data[sb->count] = '\0';
-
   return true;
 }
 
-bool str_builder_append_cstr(str_builder* sb, const char* cstr) {
-  return str_builder_append_bytes(sb, cstr, strlen(cstr));
+UTILS_DEF bool utils_str_builder_append_cstr(utils_str_builder* sb, const char* cstr) {
+  return utils_str_builder_append_bytes(sb, cstr, strlen(cstr));
 }
 
-bool str_builder_append_sb(str_builder* sb, const str_builder* other) {
-  return str_builder_append_bytes(sb, other->data, other->count);
+UTILS_DEF bool utils_str_builder_append_sb(utils_str_builder* sb, const utils_str_builder* other) {
+  return utils_str_builder_append_bytes(sb, other->data, other->count);
 }
 
-bool _str_builder_append_sb_value(str_builder* sb, str_builder other) {
-  return str_builder_append_sb(sb, &other);
+UTILS_DEF bool utils_str_builder_append_sb_value(utils_str_builder* sb, utils_str_builder other) {
+  return utils_str_builder_append_sb(sb, &other);
 }
 
-bool str_builder_append_sv(str_builder* sb, str_view sv) {
-  return str_builder_append_bytes(sb, sv.data, sv.count);
+UTILS_DEF bool utils_str_builder_append_sv(utils_str_builder* sb, utils_str_view sv) {
+  return utils_str_builder_append_bytes(sb, sv.data, sv.count);
 }
 
-str_view str_builder_view(const str_builder* sb) {
-  return str_view_from_parts(sb->data ? sb->data : "", sb->count);
+UTILS_DEF utils_str_view utils_str_builder_view(const utils_str_builder* sb) {
+  return utils_str_view_from_parts(sb->data ? sb->data : "", sb->count);
 }
 
-#define str_builder_append(sb, data)           \
-  _Generic((data),                             \
-    char*: str_builder_append_cstr,            \
-    const char*: str_builder_append_cstr,      \
-    str_builder: _str_builder_append_sb_value, \
-    str_builder*: str_builder_append_sb,       \
-    const str_builder*: str_builder_append_sb, \
-    str_view: str_builder_append_sv            \
-  )(sb, data)
-
-void str_builder_clear(str_builder* sb) {
+UTILS_DEF void utils_str_builder_clear(utils_str_builder* sb) {
   sb->count = 0;
 
   if (sb->data != nil) {
@@ -1068,90 +1312,39 @@ void str_builder_clear(str_builder* sb) {
   }
 }
 
-void str_builder_free(str_builder* sb) {
-  _str_builder_ensure_allocator(sb);
-
-  _str_builder_free(sb, sb->data);
-
+UTILS_DEF void utils_str_builder_free(utils_str_builder* sb) {
+  utils__str_builder_ensure_allocator(sb);
+  UTILS__STR_BUILDER_FREE(sb, sb->data);
   sb->data = nil;
   sb->count = 0;
   sb->capacity = 0;
 }
 
-#endif // USE_STR_UTILS
-
-
-
-#ifdef USE_COLLECTION_UTILS
-
-#include <string.h>
-
-#ifdef USE_ALLOC_UTILS
-#define _COLLECTION_ALLOC_FIELD allocator alloc;
-#else
-#define _COLLECTION_ALLOC_FIELD
-#endif
-
-typedef struct {
-  void* data;
-  usz count;
-  usz capacity;
-
-#ifdef USE_ALLOC_UTILS
-  allocator alloc;
-#endif
-} _da_base;
-
-#define da(T) struct {    \
-  T* data;                \
-  usz count;              \
-  usz capacity;           \
-  _COLLECTION_ALLOC_FIELD \
-}
-
-#ifdef USE_ALLOC_UTILS
-
-void _da_base_ensure_allocator(_da_base* arr) {
+static void utils__da_base_ensure_allocator(utils_impl_da_base* arr) {
   if (arr->alloc.alloc == nil) {
-    arr->alloc = make_allocator();
+    arr->alloc = utils_make_allocator();
   }
 }
 
-#define _da_base_realloc(arr, elem_size, new_capacity) \
-  arr->alloc.realloc(arr->alloc.ctx, arr->data, new_capacity * elem_size)
+#define UTILS__DA_BASE_REALLOC(arr, elem_size, new_capacity) \
+  (arr)->alloc.realloc((arr)->alloc.ctx, (arr)->data, (new_capacity) * (elem_size))
 
-#define _da_base_free(arr) \
+#define UTILS__DA_BASE_FREE(arr) \
   do { \
     if ((arr)->data != nil) { \
       (arr)->alloc.free((arr)->alloc.ctx, (arr)->data); \
     } \
   } while (0)
 
-#else
-
-void _da_base_ensure_allocator(_da_base* arr) {
-  (void)arr;
+UTILS_DEF void* utils_impl_da_base_resize(utils_impl_da_base* arr, usz elem_size, usz new_capacity) {
+  utils__da_base_ensure_allocator(arr);
+  return UTILS__DA_BASE_REALLOC(arr, elem_size, new_capacity);
 }
 
-#define _da_base_realloc(arr, elem_size, new_capacity) \
-  realloc(arr->data, new_capacity * elem_size)
-
-#define _da_base_free(arr) \
-  free((arr)->data)
-
-#endif
-
-void* _da_base_resize(_da_base* arr, usz elem_size, usz new_capacity) {
-  _da_base_ensure_allocator(arr);
-
-  return _da_base_realloc(arr, elem_size, new_capacity);
-}
-
-bool _da_base_append_impl(_da_base* arr, void* value, usz elem_size) {
+UTILS_DEF bool utils_impl_da_base_append_impl(utils_impl_da_base* arr, void* value, usz elem_size) {
   if (arr->count >= arr->capacity) {
     usz new_capacity = arr->capacity > 0 ? arr->capacity * 2 : 4;
-
-    void* new_data = _da_base_resize(arr, elem_size, new_capacity);
+    void* new_data = utils_impl_da_base_resize(arr, elem_size, new_capacity);
 
     if (new_data == nil) {
       return false;
@@ -1162,114 +1355,31 @@ bool _da_base_append_impl(_da_base* arr, void* value, usz elem_size) {
   }
 
   memcpy((u8*)arr->data + arr->count * elem_size, value, elem_size);
-
   arr->count += 1;
-
   return true;
 }
 
-void _da_free(_da_base* arr) {
-  _da_base_ensure_allocator(arr);
-
-  _da_base_free(arr);
-
+UTILS_DEF void utils_impl_da_free(utils_impl_da_base* arr) {
+  utils__da_base_ensure_allocator(arr);
+  UTILS__DA_BASE_FREE(arr);
   arr->data = nil;
   arr->count = 0;
   arr->capacity = 0;
 }
 
-#define da_append(arr, value)            \
-  ({                                     \
-    typeof(*(arr)->data) _tmp = (value); \
-    _da_base_append_impl(                \
-      (_da_base*)(arr),                  \
-      &_tmp,                             \
-      sizeof(_tmp)                       \
-    );                                   \
-  })
-
-#define da_at(arr, index) ((arr)->data[(index)])
-
-#define da_last(arr) ((arr)->data[(arr)->count - 1])
-
-#define da_free(arr) _da_free((_da_base*)(arr))
-
-#define _DA_FOREACH_1(arr) \
-  _DA_FOREACH_2(arr, it)
-
-#define _DA_FOREACH_2(arr, it)                                     \
-  for (usz _i = 0; _i < (arr)->count; ++_i)                        \
-    for (typeof(*(arr)->data) it = (arr)->data[_i], *_once = &it;  \
-         _once != nil;                                             \
-         _once = nil)
-
-#define _DA_FOREACH_GET(_1, _2, NAME, ...) NAME
-
-#define da_foreach(...) \
-  _DA_FOREACH_GET(__VA_ARGS__, _DA_FOREACH_2, _DA_FOREACH_1)(__VA_ARGS__)
-
-#define _DA_FOREACH_I_1(arr) \
-  _DA_FOREACH_I_3(arr, idx, it)
-
-#define _DA_FOREACH_I_3(arr, i, it)                                \
-  for (usz i = 0; i < (arr)->count; ++i)                           \
-    for (typeof(*(arr)->data) it = (arr)->data[i], *_once = &it;   \
-         _once != nil;                                             \
-         _once = nil)
-
-#define _DA_FOREACH_I_GET(_1, _2, _3, NAME, ...) NAME
-
-#define da_foreach_i(...) \
-  _DA_FOREACH_I_GET(__VA_ARGS__, _DA_FOREACH_I_3, _, _DA_FOREACH_I_1)(__VA_ARGS__)
-
-
-typedef struct {
-  void *data;
-  usz count;
-  usz capacity;
-  _COLLECTION_ALLOC_FIELD
-} _map_base;
-
-#ifdef USE_ALLOC_UTILS
-
-static void _map_ensure_allocator(_map_base *map) {
-  if (map->alloc.alloc == nil) {
-    map->alloc = make_allocator();
+static void utils__map_ensure_allocator(utils_impl_map_base* utils_map) {
+  if (utils_map->alloc.alloc == nil) {
+    utils_map->alloc = utils_make_allocator();
   }
 }
 
-#define _map_alloc(map, size) \
-  (map)->alloc.alloc((map)->alloc.ctx, (size))
+#define UTILS__MAP_ALLOC(utils_map, size) \
+  (utils_map)->alloc.alloc((utils_map)->alloc.ctx, (size))
 
-#define _map_free_mem(map, ptr) \
-  (map)->alloc.free((map)->alloc.ctx, (ptr))
+#define UTILS__MAP_FREE_MEM(utils_map, ptr) \
+  (utils_map)->alloc.free((utils_map)->alloc.ctx, (ptr))
 
-#else
-
-static void _map_ensure_allocator(_map_base *map) {
-  (void)map;
-}
-
-#define _map_alloc(map, size) malloc(size)
-
-#define _map_free_mem(map, ptr) free(ptr)
-
-#endif
-
-#define _map_entry(T) struct { \
-  const char* key;             \
-  T value;                     \
-  bool occupied;               \
-}
-
-#define map(T) struct {   \
-  _map_entry(T)* data;    \
-  usz count;              \
-  usz capacity;           \
-  _COLLECTION_ALLOC_FIELD \
-}
-
-static u64 _map_hash(const char *str) {
+static u64 utils__map_hash(const char* str) {
   u64 hash = 14695981039346656037ull;
 
   while (*str) {
@@ -1281,53 +1391,42 @@ static u64 _map_hash(const char *str) {
   return hash;
 }
 
-static bool _map_init_slots(_map_base* map, usz elem_size, usz capacity) {
-  _map_ensure_allocator(map);
+static bool utils__map_init_slots(utils_impl_map_base* utils_map, usz elem_size, usz capacity) {
+  utils__map_ensure_allocator(utils_map);
 
-  void* data = _map_alloc(map, capacity * elem_size);
+  void* data = UTILS__MAP_ALLOC(utils_map, capacity * elem_size);
 
   if (data == nil) {
     return false;
   }
 
   memset(data, 0, capacity * elem_size);
-
-  map->data = data;
-  map->capacity = capacity;
-  map->count = 0;
-
+  utils_map->data = data;
+  utils_map->capacity = capacity;
+  utils_map->count = 0;
   return true;
 }
 
-static bool _map_insert_no_rehash(
-  _map_base* map,
+static bool utils__map_insert_no_rehash(
+  utils_impl_map_base* utils_map,
   const char* key,
   void* value,
   usz elem_size
 ) {
-  usz cap = map->capacity;
-  u8* base = map->data;
-
-  usz idx = _map_hash(key) % cap;
+  usz cap = utils_map->capacity;
+  u8* base = utils_map->data;
+  usz idx = utils__map_hash(key) % cap;
   usz probes = 0;
 
   while (probes < cap) {
     void* entry = base + idx * elem_size;
-
     bool* occupied = (bool*)((u8*)entry + elem_size - sizeof(bool));
 
     if (!*occupied) {
       memcpy(entry, &key, sizeof key);
-
-      memcpy(
-        (u8*)entry + sizeof(char*),
-        value,
-        elem_size - sizeof(char*) - sizeof(bool)
-      );
-
+      memcpy((u8*)entry + sizeof(char*), value, elem_size - sizeof(char*) - sizeof(bool));
       *occupied = true;
-      map->count += 1;
-
+      utils_map->count += 1;
       return true;
     }
 
@@ -1343,112 +1442,80 @@ static bool _map_insert_no_rehash(
   return false;
 }
 
-static bool _map_rehash(_map_base* map, usz elem_size, usz new_capacity) {
-  _map_base new_map = {0};
+static bool utils__map_rehash(utils_impl_map_base* utils_map, usz elem_size, usz new_capacity) {
+  utils_impl_map_base new_map = {0};
+  new_map.alloc = utils_map->alloc;
 
-#ifdef USE_ALLOC_UTILS
-  new_map.alloc = map->alloc;
-#endif
-
-  if (!_map_init_slots(&new_map, elem_size, new_capacity)) {
+  if (!utils__map_init_slots(&new_map, elem_size, new_capacity)) {
     return false;
   }
 
-  u8* base = map->data;
+  u8* base = utils_map->data;
 
-  for (usz i = 0; i < map->capacity; i += 1) {
+  for (usz i = 0; i < utils_map->capacity; i += 1) {
     void* entry = base + i * elem_size;
-
     bool* occupied = (bool*)((u8*)entry + elem_size - sizeof(bool));
 
     if (*occupied) {
       const char* key = *(const char**)entry;
-
       void* value = (u8*)entry + sizeof(char*);
 
-      if (!_map_insert_no_rehash(
-        &new_map,
-        key,
-        value,
-        elem_size
-      )) {
-
-        _map_free_mem(&new_map, new_map.data);
-
+      if (!utils__map_insert_no_rehash(&new_map, key, value, elem_size)) {
+        UTILS__MAP_FREE_MEM(&new_map, new_map.data);
         return false;
       }
     }
   }
 
-  if (map->data != nil) {
-    _map_free_mem(map, map->data);
+  if (utils_map->data != nil) {
+    UTILS__MAP_FREE_MEM(utils_map, utils_map->data);
   }
 
-  map->data = new_map.data;
-  map->count = new_map.count;
-  map->capacity = new_map.capacity;
-
+  utils_map->data = new_map.data;
+  utils_map->count = new_map.count;
+  utils_map->capacity = new_map.capacity;
   return true;
 }
 
-static bool _map_insert_impl(
-  _map_base* map,
+UTILS_DEF bool utils_impl_map_insert_impl(
+  utils_impl_map_base* utils_map,
   const char* key,
   void* value,
   usz elem_size
 ) {
-  if (map->capacity == 0) {
-    if (!_map_init_slots(map, elem_size, 16)) {
+  if (utils_map->capacity == 0) {
+    if (!utils__map_init_slots(utils_map, elem_size, 16)) {
       return false;
     }
   }
 
-  if ((map->count + 1) * 10 >= map->capacity * 7) {
-    if (!_map_rehash(
-      map,
-      elem_size,
-      map->capacity * 2
-    )) {
+  if ((utils_map->count + 1) * 10 >= utils_map->capacity * 7) {
+    if (!utils__map_rehash(utils_map, elem_size, utils_map->capacity * 2)) {
       return false;
     }
   }
 
-  usz cap = map->capacity;
-  u8* base = map->data;
-
-  usz idx = _map_hash(key) % cap;
+  usz cap = utils_map->capacity;
+  u8* base = utils_map->data;
+  usz idx = utils__map_hash(key) % cap;
   usz probes = 0;
 
   while (probes < cap) {
     void* entry = base + idx * elem_size;
-
     bool* occupied = (bool*)((u8*)entry + elem_size - sizeof(bool));
 
     if (!*occupied) {
       memcpy(entry, &key, sizeof key);
-
-      memcpy(
-        (u8*)entry + sizeof(char*),
-        value,
-        elem_size - sizeof(char*) - sizeof(bool)
-      );
-
+      memcpy((u8*)entry + sizeof(char*), value, elem_size - sizeof(char*) - sizeof(bool));
       *occupied = true;
-
-      map->count += 1;
-
+      utils_map->count += 1;
       return true;
     }
 
     const char* existing = *(const char**)entry;
 
     if (strcmp(existing, key) == 0) {
-      memcpy(
-        (u8*)entry + sizeof(char*),
-        value,
-        elem_size - sizeof(char*) - sizeof(bool)
-      );
-
+      memcpy((u8*)entry + sizeof(char*), value, elem_size - sizeof(char*) - sizeof(bool));
       return true;
     }
 
@@ -1464,19 +1531,17 @@ static bool _map_insert_impl(
   return false;
 }
 
-static void* _map_get_impl(_map_base* map, const char* key, usz elem_size) {
-  if (map->capacity == 0) {
+UTILS_DEF void* utils_impl_map_get_impl(utils_impl_map_base* utils_map, const char* key, usz elem_size) {
+  if (utils_map->capacity == 0) {
     return nil;
   }
 
-  usz idx = _map_hash(key) % map->capacity;
+  usz idx = utils__map_hash(key) % utils_map->capacity;
   usz probes = 0;
+  u8* base = utils_map->data;
 
-  u8* base = map->data;
-
-  while (probes < map->capacity) {
+  while (probes < utils_map->capacity) {
     void* entry = base + idx * elem_size;
-
     bool* occupied = (bool*)((u8*)entry + elem_size - sizeof(bool));
 
     if (!*occupied) {
@@ -1491,7 +1556,7 @@ static void* _map_get_impl(_map_base* map, const char* key, usz elem_size) {
 
     idx += 1;
 
-    if (idx >= map->capacity) {
+    if (idx >= utils_map->capacity) {
       idx = 0;
     }
 
@@ -1501,48 +1566,19 @@ static void* _map_get_impl(_map_base* map, const char* key, usz elem_size) {
   return nil;
 }
 
-static void _map_free(_map_base* map) {
-  _map_ensure_allocator(map);
+UTILS_DEF void utils_impl_map_free(utils_impl_map_base* utils_map) {
+  utils__map_ensure_allocator(utils_map);
 
-  if (map->data != nil) {
-    _map_free_mem(map, map->data);
+  if (utils_map->data != nil) {
+    UTILS__MAP_FREE_MEM(utils_map, utils_map->data);
   }
 
-  map->data = nil;
-  map->count = 0;
-  map->capacity = 0;
+  utils_map->data = nil;
+  utils_map->count = 0;
+  utils_map->capacity = 0;
 }
 
-#define map_insert(map, k, v) ({           \
-  typeof((map)->data[0].value) _tmp = (v); \
-  _map_insert_impl(                        \
-    (_map_base*)(map),                     \
-    (k),                                   \
-    &_tmp,                                 \
-    sizeof((map)->data[0])                 \
-  );                                       \
-})
-
-#define map_get(map, k)            \
-  ((typeof(&(map)->data[0].value)) \
-    _map_get_impl(                 \
-      (_map_base*)(map),           \
-      (k),                         \
-      sizeof((map)->data[0])       \
-    ))
-
-#define map_free(map) \
-  _map_free((_map_base*)(map))
-
-
-#endif // USE_COLLECTION_UTILS
-
-
-#ifdef USE_FILE_UTILS
-
-#include <stdio.h>
-
-bool read_entire_file(const char* path, str_builder* sb) {
+UTILS_DEF bool utils_read_entire_file(const char* path, utils_str_builder* sb) {
   FILE* f = fopen(path, "rb");
 
   if (f == nil) {
@@ -1562,16 +1598,14 @@ bool read_entire_file(const char* path, str_builder* sb) {
   }
 
   rewind(f);
+  utils_str_builder_clear(sb);
 
-  str_builder_clear(sb);
-
-  if (!str_builder_reserve(sb, (usz)size)) {
+  if (!utils_str_builder_reserve(sb, (usz)size)) {
     fclose(f);
     return false;
   }
 
   usz read = fread(sb->data, 1, (usz)size, f);
-
   fclose(f);
 
   if (read != (usz)size) {
@@ -1580,11 +1614,10 @@ bool read_entire_file(const char* path, str_builder* sb) {
 
   sb->count = read;
   sb->data[sb->count] = '\0';
-
   return true;
 }
 
-bool write_entire_file_cstr(const char* path, const char* data) {
+UTILS_DEF bool utils_write_entire_file_cstr(const char* path, const char* data) {
   FILE* f = fopen(path, "wb");
 
   if (f == nil) {
@@ -1592,15 +1625,12 @@ bool write_entire_file_cstr(const char* path, const char* data) {
   }
 
   usz size = strlen(data);
-
   usz written = fwrite(data, 1, size, f);
-
   fclose(f);
-
   return written == size;
 }
 
-bool write_entire_file_sv(const char* path, str_view sv) {
+UTILS_DEF bool utils_write_entire_file_sv(const char* path, utils_str_view sv) {
   FILE* f = fopen(path, "wb");
 
   if (f == nil) {
@@ -1608,25 +1638,19 @@ bool write_entire_file_sv(const char* path, str_view sv) {
   }
 
   usz written = fwrite(sv.data, 1, sv.count, f);
-
   fclose(f);
-
   return written == sv.count;
 }
 
-
-bool write_entire_file_sv_ptr(const char* path, str_view* sv) {
+UTILS_DEF bool utils_write_entire_file_sv_ptr(const char* path, utils_str_view* sv) {
   if (sv == nil) {
     return false;
   }
 
-  return write_entire_file_sv(
-    path,
-    *sv
-  );
+  return utils_write_entire_file_sv(path, *sv);
 }
 
-bool write_entire_file_sb(const char* path, str_builder sb) {
+UTILS_DEF bool utils_write_entire_file_sb(const char* path, utils_str_builder sb) {
   FILE* f = fopen(path, "wb");
 
   if (f == nil) {
@@ -1634,123 +1658,45 @@ bool write_entire_file_sb(const char* path, str_builder sb) {
   }
 
   usz written = fwrite(sb.data, 1, sb.count, f);
-
   fclose(f);
-
   return written == sb.count;
 }
 
-bool write_entire_file_sb_ptr(const char* path, str_builder* sb) {
+UTILS_DEF bool utils_write_entire_file_sb_ptr(const char* path, utils_str_builder* sb) {
   if (sb == nil) {
     return false;
   }
 
-  return write_entire_file_sb(path, *sb);
+  return utils_write_entire_file_sb(path, *sb);
 }
 
-#define write_entire_file(path, data)            \
-  _Generic((data),                               \
-    char*: write_entire_file_cstr,               \
-    const char*: write_entire_file_cstr,         \
-    str_view: write_entire_file_sv,              \
-    str_view*: write_entire_file_sv_ptr,         \
-    const str_view*: write_entire_file_sv_ptr,   \
-    str_builder: write_entire_file_sb,           \
-    str_builder*: write_entire_file_sb_ptr,      \
-    const str_builder*: write_entire_file_sb_ptr \
-  )(path, data)
-
-#endif // USE_FILE_UTILS
-
-
-#ifdef USE_FLAGS_UTILS
-
-#include <limits.h>
-#include <assert.h>
-
-typedef enum flag_type {
-  BOOL,
-  STRING,
-  NUMBER,
-} flag_type;
-
-typedef struct {
-  const char* name;
-  const char* desc;
-  flag_type type;
-  union {
-    bool bool_value;
-    str_view string_value;
-    int number_value;
-  } value;
-  bool is_set;
-} flag;
-
-#define get_flag(pvalue) ((flag*)((char*)(pvalue) - offsetof(flag, value)))
-#define flag_is_set(pvalue) (get_flag(pvalue)->is_set)
-#define flag_name(pvalue) (get_flag(pvalue)->name)
-#define flag_desc(pvalue) (get_flag(pvalue)->desc)
-
-#ifndef FLAGS_MAX_FLAGS
-#define FLAGS_MAX_FLAGS 64
-#endif
-
-static_assert(FLAGS_MAX_FLAGS > 0, "FLAGS_MAX_FLAGS must be greater than 0");
-
-typedef struct flags {
-  const char* positional_args_req;
-
-  flag flags[FLAGS_MAX_FLAGS];
-  usz flags_count;
-
-  da(str_view) positional_args;
-
-  bool got_help;
-
-  bool _parsed;
-  bool failed_adding;
-
-#ifdef USE_ALLOC_UTILS
-  allocator alloc;
-#endif
-} flags;
-
-#define add_flag(a, name, description, def) \
-  _Generic((def),                           \
-    char*: _add_flag_string,                \
-    const char*: _add_flag_string,          \
-    str_view: _add_flag_str_view,           \
-    int: _add_flag_int,                     \
-    bool: _add_flag_bool                    \
-  )(a, name, description, def)
-
-static void* _add_flag(flags* f, const char* name, const char* description, flag_type type) {
-  if (f->flags_count >= FLAGS_MAX_FLAGS) {
+static void* utils__add_flag(utils_flags* f, const char* name, const char* description, utils_flag_type type) {
+  if (f->flags_count >= UTILS_FLAGS_MAX_FLAGS) {
     fprintf(
       stderr,
-      "Maximum number of flags exceeded (%d). "
-      "#define FLAGS_MAX_FLAGS before including utils.h to increase this limit.\n",
-      FLAGS_MAX_FLAGS
+      "Maximum number of utils_flags exceeded (%d). "
+      "#define UTILS_FLAGS_MAX_FLAGS before including utils.h to increase this limit.\n",
+      UTILS_FLAGS_MAX_FLAGS
     );
     f->failed_adding = true;
     return nil;
   }
 
   if (f->_parsed) {
-    fprintf(stderr, "cannot add flags after parsing\n");
+    fprintf(stderr, "cannot add utils_flags after parsing\n");
     f->failed_adding = true;
     return nil;
   }
 
   if (name == nil || description == nullptr) {
-    fprintf(stderr, "flag name and/or description cannot be null\n");
+    fprintf(stderr, "utils_flag name and/or description cannot be null\n");
     f->failed_adding = true;
     return nil;
   }
 
   for (const char* p = name; *p != '\0'; p++) {
     if (*p == '=') {
-      fprintf(stderr, "flag name cannot contain '=': %s\n", name);
+      fprintf(stderr, "utils_flag name cannot contain '=': %s\n", name);
       f->failed_adding = true;
       return nil;
     }
@@ -1764,101 +1710,94 @@ static void* _add_flag(flags* f, const char* name, const char* description, flag
 
   for (usz i = 0; i < f->flags_count; i++) {
     if (strcmp(f->flags[i].name, name) == 0) {
-      fprintf(stderr, "duplicate flag name: %s\n", name);
+      fprintf(stderr, "duplicate utils_flag name: %s\n", name);
       f->failed_adding = true;
       return nil;
     }
   }
 
-  flag* flag = &f->flags[f->flags_count];
-  flag->name = name;
-  flag->desc = description;
-  flag->type = type;
-  flag->is_set = false;
+  utils_flag* flag_slot = &f->flags[f->flags_count];
+  flag_slot->name = name;
+  flag_slot->desc = description;
+  flag_slot->type = type;
+  flag_slot->is_set = false;
   f->flags_count += 1;
   return &f->flags[f->flags_count - 1].value;
 }
 
-str_view* _add_flag_string(flags* f, const char* name, const char* description, const char* def) {
+UTILS_DEF utils_str_view* utils_impl_add_flag_string(utils_flags* f, const char* name, const char* description, const char* def) {
   if (def == nil) {
     def = "";
   }
-  void* got = _add_flag(f, name, description, STRING);
+
+  void* got = utils__add_flag(f, name, description, UTILS_FLAG_STRING);
+
   if (!got) {
     return nil;
   }
-  f->flags[f->flags_count - 1].value.string_value = str_view_from_cstr(def);
-  return (str_view*)got;
+
+  f->flags[f->flags_count - 1].value.string_value = utils_str_view_from_cstr(def);
+  return (utils_str_view*)got;
 }
 
-str_view* _add_flag_str_view(flags* f, const char* name, const char* description, str_view def) {
-  void* got = _add_flag(f, name, description, STRING);
+UTILS_DEF utils_str_view* utils_impl_add_flag_str_view(utils_flags* f, const char* name, const char* description, utils_str_view def) {
+  void* got = utils__add_flag(f, name, description, UTILS_FLAG_STRING);
+
   if (!got) {
     return nil;
   }
+
   f->flags[f->flags_count - 1].value.string_value = def;
-  return (str_view*)got;
+  return (utils_str_view*)got;
 }
 
-int* _add_flag_int(flags* f, const char* name, const char* description, int def) {
-  void* got = _add_flag(f, name, description, NUMBER);
+UTILS_DEF int* utils_impl_add_flag_int(utils_flags* f, const char* name, const char* description, int def) {
+  void* got = utils__add_flag(f, name, description, UTILS_FLAG_NUMBER);
+
   if (!got) {
     return nil;
   }
+
   f->flags[f->flags_count - 1].value.number_value = def;
   return (int*)got;
 }
 
-bool* _add_flag_bool(flags* f, const char* name, const char* description, bool def) {
-  void* got = _add_flag(f, name, description, BOOL);
+UTILS_DEF bool* utils_impl_add_flag_bool(utils_flags* f, const char* name, const char* description, bool def) {
+  void* got = utils__add_flag(f, name, description, UTILS_FLAG_BOOL);
+
   if (!got) {
     return nil;
   }
+
   f->flags[f->flags_count - 1].value.bool_value = def;
   return (bool*)got;
 }
 
-static usz _null_term_array_len(const void** arr) {
-  usz len = 0;
-  while (arr[len] != nil) {
-    len += 1;
-  }
-  return len;
-}
-
-void flags_reset(flags* f) {
+UTILS_DEF void utils_flags_reset(utils_flags* f) {
   f->flags_count = 0;
-
-  da_free(&f->positional_args);
-
+  utils_da_free(&f->positional_args);
   f->got_help = false;
-
   f->_parsed = false;
+  f->failed_adding = false;
 }
 
-static bool _is_flag(const str_view flag) {
-  return flag.count > 0 && flag.data[0] == '-';
+static bool utils__is_flag(utils_str_view flag_sv) {
+  return flag_sv.count > 0 && flag_sv.data[0] == '-';
 }
 
-static bool _str_startswith(const char* str, const char* prefix) {
-  usz str_len = strlen(str);
-  usz prefix_len = strlen(prefix);
-  return str_len >= prefix_len && strncmp(str, prefix, prefix_len) == 0;
-}
-
-static bool _add_positional_arg(flags* f, const str_view flag) {
-#ifdef USE_ALLOC_UTILS
+static bool utils__add_positional_arg(utils_flags* f, utils_str_view arg) {
   if (f->positional_args.alloc.alloc == nil) {
     if (f->alloc.alloc == nil) {
-      f->alloc = make_allocator();
+      f->alloc = utils_make_allocator();
     }
+
     f->positional_args.alloc = f->alloc;
   }
-#endif
-  return da_append(&f->positional_args, flag);
+
+  return utils_da_append(&f->positional_args, arg);
 }
 
-static bool _parse_int(str_view sv, int *out) {
+static bool utils__parse_int(utils_str_view sv, int* out) {
   if (sv.count == 0) {
     return false;
   }
@@ -1869,6 +1808,7 @@ static bool _parse_int(str_view sv, int *out) {
   if (sv.data[0] == '-') {
     negative = true;
     i = 1;
+
     if (i == sv.count) {
       return false;
     }
@@ -1878,6 +1818,7 @@ static bool _parse_int(str_view sv, int *out) {
 
   for (; i < sv.count; i++) {
     char c = sv.data[i];
+
     if (c < '0' || c > '9') {
       return false;
     }
@@ -1893,45 +1834,44 @@ static bool _parse_int(str_view sv, int *out) {
   return true;
 }
 
-static bool _set_flag_value(flags* f, flag* flag, const str_view sv) {
-  if (flag->is_set) {
-    fprintf(stderr, "flag -%s specified multiple times\n", flag->name);
+static bool utils__set_flag_value(utils_flag* flag_slot, utils_str_view sv) {
+  if (flag_slot->is_set) {
+    fprintf(stderr, "utils_flag -%s specified multiple times\n", flag_slot->name);
     return false;
   }
 
-  switch (flag->type) {
-    case BOOL: {
+  switch (flag_slot->type) {
+    case UTILS_FLAG_BOOL:
       if (sv.count > 0) {
-        fprintf(stderr, "boolean flag -%s does not take a value\n", flag->name);
+        fprintf(stderr, "boolean utils_flag -%s does not take a value\n", flag_slot->name);
         return false;
       }
 
-      flag->value.bool_value = true;
+      flag_slot->value.bool_value = true;
       break;
-    }
-    case STRING: {
-      flag->value.string_value = sv;
+    case UTILS_FLAG_STRING:
+      flag_slot->value.string_value = sv;
       break;
-    }
-    case NUMBER: {
+    case UTILS_FLAG_NUMBER: {
       int value;
-      if (!_parse_int(sv, &value)) {
-        fprintf(stderr, "invalid integer value for flag -%s: '" sfmt "'\n", flag->name, sfmtarg(sv));
+
+      if (!utils__parse_int(sv, &value)) {
+        fprintf(stderr, "invalid integer value for utils_flag -%s: '" utils_sfmt "'\n", flag_slot->name, utils_sfmtarg(sv));
         return false;
       }
 
-      flag->value.number_value = (int)value;
+      flag_slot->value.number_value = value;
       break;
     }
   }
 
-  flag->is_set = true;
-
+  flag_slot->is_set = true;
   return true;
 }
 
-void flags_print_help(flags* f, const char* prog_name) {
+UTILS_DEF void utils_flags_print_help(utils_flags* f, const char* prog_name) {
   printf("Usage: %s [options]", prog_name);
+
   if (f->positional_args_req) {
     if (strcmp(f->positional_args_req, "+") == 0) {
       printf(" <arg1> [arg2] ...");
@@ -1942,6 +1882,7 @@ void flags_print_help(flags* f, const char* prog_name) {
     } else {
       printf(" ");
       int expected = atoi(f->positional_args_req);
+
       for (long j = 0; j < expected; j++) {
         printf("<arg%ld> ", j + 1);
       }
@@ -1954,40 +1895,49 @@ void flags_print_help(flags* f, const char* prog_name) {
     printf("\nOptions:\n");
 
     usz max_name_len = 0;
+
     for (usz j = 0; j < f->flags_count; j++) {
       usz len = strlen(f->flags[j].name);
+
       if (len > max_name_len) {
         max_name_len = len;
       }
     }
 
     for (usz j = 0; j < f->flags_count; j++) {
-      flag* flag = &f->flags[j];
-      printf("  -%-*s  %s", (int)max_name_len, flag->name, flag->desc);
-      switch (flag->type) {
-        case STRING:
-          if (flag->value.string_value.count > 0) {
-            printf(" (default: " sfmt ")", sfmtarg(flag->value.string_value));
+      utils_flag* flag_slot = &f->flags[j];
+      printf("  -%-*s  %s", (int)max_name_len, flag_slot->name, flag_slot->desc);
+
+      switch (flag_slot->type) {
+        case UTILS_FLAG_STRING:
+          if (flag_slot->value.string_value.count > 0) {
+            printf(" (default: " utils_sfmt ")", utils_sfmtarg(flag_slot->value.string_value));
           }
           break;
-        case NUMBER:
-          printf(" (default: %d)", flag->value.number_value);
+        case UTILS_FLAG_NUMBER:
+          printf(" (default: %d)", flag_slot->value.number_value);
           break;
         default:
           break;
       }
+
       printf("\n");
     }
   }
 }
 
-bool flags_parse(flags* f, int flagc, char** flagv) {
+UTILS_DEF bool utils_flags_parse(utils_flags* f, int flagc, char** flagv) {
+  if (f->failed_adding) {
+    return false;
+  }
+
   if (!f->positional_args_req) {
   } else if (strcmp(f->positional_args_req, "+") == 0) {
   } else if (strcmp(f->positional_args_req, "?") == 0) {
   } else if (strcmp(f->positional_args_req, "*") == 0) {
   } else {
     int expected = atoi(f->positional_args_req);
+
     if (expected < 0) {
       fprintf(stderr, "invalid positional_args_req: %s\n", f->positional_args_req);
       return false;
@@ -2002,81 +1952,82 @@ bool flags_parse(flags* f, int flagc, char** flagv) {
   }
 
   for (int i = 1; i < flagc; i++) {
-    str_view got = str_view_from_cstr(flagv[i]);
-    if (!_is_flag(got)) {
-      if (!_add_positional_arg(f, got)) {
+    utils_str_view got = utils_str_view_from_cstr(flagv[i]);
+
+    if (!utils__is_flag(got)) {
+      if (!utils__add_positional_arg(f, got)) {
         return false;
       }
+
       continue;
     }
 
-    // skip the leading '-'
-    str_view_chop_left(&got, 1);
-    
-    bool found = false;
-    for (usz j = 0; j < f->flags_count; j++) {
-      flag* flag = &f->flags[j];
-      // -flag value syntax
-      if (str_view_eq_cstr(got, flag->name)) {
-        found = true;
-        str_view value = {0};
+    utils_str_view_chop_left(&got, 1);
 
-        if (flag->type != BOOL) {
+    bool found = false;
+
+    for (usz j = 0; j < f->flags_count; j++) {
+      utils_flag* flag_slot = &f->flags[j];
+
+      if (utils_str_view_eq_cstr(got, flag_slot->name)) {
+        found = true;
+        utils_str_view value = {0};
+
+        if (flag_slot->type != UTILS_FLAG_BOOL) {
           if (i + 1 >= flagc) {
-            fprintf(stderr, "flag -" sfmt " requires a value\n", sfmtarg(got));
+            fprintf(stderr, "utils_flag -" utils_sfmt " requires a value\n", utils_sfmtarg(got));
             return false;
           }
 
-          value = str_view_from_cstr(flagv[i + 1]);
+          value = utils_str_view_from_cstr(flagv[i + 1]);
           i += 1;
         }
 
-        if (!_set_flag_value(f, &f->flags[j], value)) {
+        if (!utils__set_flag_value(flag_slot, value)) {
           return false;
         }
+
         break;
       }
 
-      usz candidate_len = strlen(flag->name);
-      if (!str_view_starts_with_cstr(got, flag->name)) {
+      usz candidate_len = strlen(flag_slot->name);
+
+      if (!utils_str_view_starts_with_cstr(got, flag_slot->name)) {
         continue;
       }
 
-      str_view suffix = got;
-      str_view_chop_left(&suffix, candidate_len);
+      utils_str_view suffix = got;
+      utils_str_view_chop_left(&suffix, candidate_len);
 
       if (suffix.count == 0 || suffix.data[0] != '=') {
         continue;
       }
 
-      // -flag=value syntax
       found = true;
-      str_view value = suffix;
-      str_view_chop_left(&value, 1);
+      utils_str_view value = suffix;
+      utils_str_view_chop_left(&value, 1);
 
-      if (!_set_flag_value(f, &f->flags[j], value)) {
+      if (!utils__set_flag_value(flag_slot, value)) {
         return false;
       }
     }
 
     if (!found) {
-      int equal_sign = str_view_find(got, '=');
+      int equal_sign = utils_str_view_find(got, '=');
 
       if (equal_sign != -1) {
-        str_view flag_name = got;
-        flag_name.count = (usz)equal_sign;
-
-        fprintf(stderr, "unknown flag -" sfmt "\n", sfmtarg(flag_name));
-        return false;
-      } else {
-        fprintf(stderr, "unknown flag -" sfmt "\n", sfmtarg(got));
+        utils_str_view utils_flag_name = got;
+        utils_flag_name.count = (usz)equal_sign;
+        fprintf(stderr, "unknown utils_flag -" utils_sfmt "\n", utils_sfmtarg(utils_flag_name));
         return false;
       }
+
+      fprintf(stderr, "unknown utils_flag -" utils_sfmt "\n", utils_sfmtarg(got));
+      return false;
     }
   }
 
   if (!f->positional_args_req) {
-    // unspecified, assume 0
     if (f->positional_args.count > 0) {
       fprintf(stderr, "expected no positional arguments, got %zu\n", f->positional_args.count);
       return false;
@@ -2092,10 +2043,9 @@ bool flags_parse(flags* f, int flagc, char** flagv) {
       return false;
     }
   } else if (strcmp(f->positional_args_req, "*") == 0) {
-    // any number of positional arguments is allowed
   } else {
-    // expected to be a number
     int expected = atoi(f->positional_args_req);
+
     if (f->positional_args.count != (usz)expected) {
       fprintf(stderr, "expected %d positional arguments, got %zu\n", expected, f->positional_args.count);
       return false;
@@ -2106,6 +2056,6 @@ bool flags_parse(flags* f, int flagc, char** flagv) {
   return true;
 }
 
-#endif // USE_FLAGS_UTILS
+#endif
 
-#endif // _UTILS_H
+#endif
