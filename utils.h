@@ -28,6 +28,13 @@ Usage:
 Notes:
   - utils.h requires C23 or later.
   - `utils_defer`, `utils_da_*`, and `utils_map_*` rely on GNU C extensions.
+  - Any section that relies on allocations:
+      * `str_builder`
+      * `da`
+      * `map`
+      * `flags`
+    MUST have a valid allocator set in the `alloc` field of the struct before use.
+    Using these without a valid allocator will cause an instant assertion failure.
 
 Dual-licensed under either of these:
 
@@ -249,7 +256,7 @@ typedef struct {
   const char* data;
 } utils_str_view;
 
-UTILS_DEF utils_str_view utils_str_view_from_parts(const char* data, usz count);
+UTILS_DEF utils_str_view utils_str_view_make(const char* data, usz count);
 UTILS_DEF utils_str_view utils_str_view_chop_while(utils_str_view* sv, int (*p)(int x));
 UTILS_DEF utils_str_view utils_str_view_chop_by_delim(utils_str_view* sv, char delim);
 UTILS_DEF utils_str_view utils_str_view_chop_left(utils_str_view* sv, usz n);
@@ -558,7 +565,7 @@ typedef utils_flags flags;
 #define str_view_starts_with utils_str_view_starts_with
 #define str_view_chop_prefix utils_str_view_chop_prefix
 #define str_view_chop_suffix utils_str_view_chop_suffix
-#define str_view_from_parts utils_str_view_from_parts
+#define str_view_make utils_str_view_make
 #define str_view_chop_while utils_str_view_chop_while
 #define str_view_chop_by_delim utils_str_view_chop_by_delim
 #define str_view_chop_left utils_str_view_chop_left
@@ -613,9 +620,9 @@ typedef utils_flags flags;
 #define flag_name utils_flag_name
 #define flag_desc utils_flag_desc
 #define FLAGS_MAX_FLAGS UTILS_FLAGS_MAX_FLAGS
-#define BOOL UTILS_FLAG_BOOL
-#define STRING UTILS_FLAG_STRING
-#define NUMBER UTILS_FLAG_NUMBER
+#define FLAG_BOOL UTILS_FLAG_BOOL
+#define FLAG_STRING UTILS_FLAG_STRING
+#define FLAG_NUMBER UTILS_FLAG_NUMBER
 #define add_flag utils_add_flag
 #define flags_reset utils_flags_reset
 #define flags_print_help utils_flags_print_help
@@ -638,8 +645,6 @@ struct utils_arena_block {
   usz used;
   bool dedicated;
 };
-
-static thread_local utils_arena utils__scratch_arenas[2];
 
 static void* utils__libc_alloc(void* ctx, usz size) {
   (void)ctx;
@@ -1032,6 +1037,8 @@ UTILS_DEF void utils_arena_restore(utils_arena* a, utils_arena_save_point save) 
   }
 }
 
+static thread_local utils_arena utils__scratch_arenas[2];
+
 UTILS_DEF utils_scratch utils_scratch_begin_with(const utils_scratch* conflict) {
   utils_arena* a = nil;
 
@@ -1059,7 +1066,7 @@ UTILS_DEF void utils_scratch_end(utils_scratch s) {
   utils_arena_restore(s.backing, s.save);
 }
 
-UTILS_DEF utils_str_view utils_str_view_from_parts(const char* data, usz count) {
+UTILS_DEF utils_str_view utils_str_view_make(const char* data, usz count) {
   utils_str_view sv;
   sv.count = count;
   sv.data = data;
@@ -1073,7 +1080,7 @@ UTILS_DEF utils_str_view utils_str_view_chop_while(utils_str_view* sv, int (*p)(
     i += 1;
   }
 
-  utils_str_view result = utils_str_view_from_parts(sv->data, i);
+  utils_str_view result = utils_str_view_make(sv->data, i);
   sv->count -= i;
   sv->data += i;
   return result;
@@ -1086,7 +1093,7 @@ UTILS_DEF utils_str_view utils_str_view_chop_by_delim(utils_str_view* sv, char d
     i += 1;
   }
 
-  utils_str_view result = utils_str_view_from_parts(sv->data, i);
+  utils_str_view result = utils_str_view_make(sv->data, i);
 
   if (i < sv->count) {
     sv->count -= i + 1;
@@ -1104,7 +1111,7 @@ UTILS_DEF utils_str_view utils_str_view_chop_left(utils_str_view* sv, usz n) {
     n = sv->count;
   }
 
-  utils_str_view result = utils_str_view_from_parts(sv->data, n);
+  utils_str_view result = utils_str_view_make(sv->data, n);
   sv->data += n;
   sv->count -= n;
   return result;
@@ -1115,13 +1122,37 @@ UTILS_DEF utils_str_view utils_str_view_chop_right(utils_str_view* sv, usz n) {
     n = sv->count;
   }
 
-  utils_str_view result = utils_str_view_from_parts(sv->data + sv->count - n, n);
+  utils_str_view result = utils_str_view_make(sv->data + sv->count - n, n);
   sv->count -= n;
   return result;
 }
 
+UTILS_DEF utils_str_view utils_str_view_trim_left(utils_str_view sv) {
+  usz i = 0;
+
+  while (i < sv.count && isspace((unsigned char)sv.data[i])) {
+    i += 1;
+  }
+
+  return utils_str_view_make(sv.data + i, sv.count - i);
+}
+
+UTILS_DEF utils_str_view utils_str_view_trim_right(utils_str_view sv) {
+  usz i = 0;
+
+  while (i < sv.count && isspace((unsigned char)sv.data[sv.count - 1 - i])) {
+    i += 1;
+  }
+
+  return utils_str_view_make(sv.data, sv.count - i);
+}
+
+UTILS_DEF utils_str_view utils_str_view_trim(utils_str_view sv) {
+  return utils_str_view_trim_right(utils_str_view_trim_left(sv));
+}
+
 UTILS_DEF utils_str_view utils_str_view_from_cstr(const char* cstr) {
-  return utils_str_view_from_parts(cstr, strlen(cstr));
+  return utils_str_view_make(cstr, strlen(cstr));
 }
 
 UTILS_DEF bool utils_str_view_eq_sv(utils_str_view a, utils_str_view b) {
@@ -1154,7 +1185,7 @@ UTILS_DEF bool utils_str_view_ends_with_cstr(utils_str_view sv, const char* cstr
 
 UTILS_DEF bool utils_str_view_starts_with_sv(utils_str_view sv, utils_str_view expected_prefix) {
   if (expected_prefix.count <= sv.count) {
-    utils_str_view actual_prefix = utils_str_view_from_parts(sv.data, expected_prefix.count);
+    utils_str_view actual_prefix = utils_str_view_make(sv.data, expected_prefix.count);
     return utils_str_view_eq_sv(expected_prefix, actual_prefix);
   }
 
@@ -1191,30 +1222,6 @@ UTILS_DEF bool utils_str_view_chop_suffix_cstr(utils_str_view* sv, const char* s
   return utils_str_view_chop_suffix_sv(sv, utils_str_view_from_cstr(suffix));
 }
 
-UTILS_DEF utils_str_view utils_str_view_trim_left(utils_str_view sv) {
-  usz i = 0;
-
-  while (i < sv.count && isspace((unsigned char)sv.data[i])) {
-    i += 1;
-  }
-
-  return utils_str_view_from_parts(sv.data + i, sv.count - i);
-}
-
-UTILS_DEF utils_str_view utils_str_view_trim_right(utils_str_view sv) {
-  usz i = 0;
-
-  while (i < sv.count && isspace((unsigned char)sv.data[sv.count - 1 - i])) {
-    i += 1;
-  }
-
-  return utils_str_view_from_parts(sv.data, sv.count - i);
-}
-
-UTILS_DEF utils_str_view utils_str_view_trim(utils_str_view sv) {
-  return utils_str_view_trim_right(utils_str_view_trim_left(sv));
-}
-
 UTILS_DEF int utils_str_view_find(utils_str_view sv, char c) {
   for (usz i = 0; i < sv.count; ++i) {
     if (sv.data[i] == c) {
@@ -1225,10 +1232,21 @@ UTILS_DEF int utils_str_view_find(utils_str_view sv, char c) {
   return -1;
 }
 
-static void utils__str_builder_ensure_allocator(utils_str_builder* sb) {
-  if (sb->alloc.alloc == nil) {
-    sb->alloc = utils_make_allocator();
+UTILS_DEF char* utils_str_view_to_cstr(utils_str_view sv, utils_allocator alloc) {
+  char* cstr = alloc.alloc(alloc.ctx, sv.count + 1);
+
+  if (cstr == nil) {
+    return nil;
   }
+
+  memcpy(cstr, sv.data, sv.count);
+  cstr[sv.count] = '\0';
+  return cstr;
+}
+
+static void utils__str_builder_ensure_allocator(utils_str_builder* sb) {
+  assert(sb != nil);
+  assert(sb->alloc.alloc != nil && sb->alloc.realloc != nil && sb->alloc.free != nil);
 }
 
 #define UTILS__STR_BUILDER_REALLOC(sb, new_capacity) \
@@ -1301,7 +1319,7 @@ UTILS_DEF bool utils_str_builder_append_sv(utils_str_builder* sb, utils_str_view
 }
 
 UTILS_DEF utils_str_view utils_str_builder_view(const utils_str_builder* sb) {
-  return utils_str_view_from_parts(sb->data ? sb->data : "", sb->count);
+  return utils_str_view_make(sb->data ? sb->data : "", sb->count);
 }
 
 UTILS_DEF void utils_str_builder_clear(utils_str_builder* sb) {
@@ -1321,9 +1339,8 @@ UTILS_DEF void utils_str_builder_free(utils_str_builder* sb) {
 }
 
 static void utils__da_base_ensure_allocator(utils_impl_da_base* arr) {
-  if (arr->alloc.alloc == nil) {
-    arr->alloc = utils_make_allocator();
-  }
+  assert(arr != nil);
+  assert(arr->alloc.alloc != nil && arr->alloc.realloc != nil && arr->alloc.free != nil);
 }
 
 #define UTILS__DA_BASE_REALLOC(arr, elem_size, new_capacity) \
@@ -1368,9 +1385,8 @@ UTILS_DEF void utils_impl_da_free(utils_impl_da_base* arr) {
 }
 
 static void utils__map_ensure_allocator(utils_impl_map_base* utils_map) {
-  if (utils_map->alloc.alloc == nil) {
-    utils_map->alloc = utils_make_allocator();
-  }
+  assert(utils_map != nil);
+  assert(utils_map->alloc.alloc != nil && utils_map->alloc.realloc != nil && utils_map->alloc.free != nil);
 }
 
 #define UTILS__MAP_ALLOC(utils_map, size) \
@@ -1787,10 +1803,7 @@ static bool utils__is_flag(utils_str_view flag_sv) {
 
 static bool utils__add_positional_arg(utils_flags* f, utils_str_view arg) {
   if (f->positional_args.alloc.alloc == nil) {
-    if (f->alloc.alloc == nil) {
-      f->alloc = utils_make_allocator();
-    }
-
+    assert(f->alloc.alloc != nil && f->alloc.realloc != nil && f->alloc.free != nil);
     f->positional_args.alloc = f->alloc;
   }
 

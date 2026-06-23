@@ -5,7 +5,8 @@ CompileFlags:
     - -xc
     - -std=gnu23
     - -D__clangd__
-    - -DUSE_ALL_UTILS
+    - -DUTILS_IMPLEMENTATION
+    - -DUTILS_STRIP_PREFIX
 
 ---
 
@@ -14,4 +15,4 @@ If:
 CompileFlags:
   Add: 
     - -D__clangd__
-    - -std=gnu23
+    - -std=c23
