@@ -257,10 +257,10 @@ typedef struct {
 } utils_str_view;
 
 UTILS_DEF utils_str_view utils_str_view_make(const char* data, usz count);
-UTILS_DEF utils_str_view utils_str_view_chop_while(utils_str_view* sv, int (*p)(int x));
-UTILS_DEF utils_str_view utils_str_view_chop_by_delim(utils_str_view* sv, char delim);
-UTILS_DEF utils_str_view utils_str_view_chop_left(utils_str_view* sv, usz n);
-UTILS_DEF utils_str_view utils_str_view_chop_right(utils_str_view* sv, usz n);
+UTILS_DEF utils_str_view utils_str_view_consume_while(utils_str_view* sv, int (*p)(int x));
+UTILS_DEF utils_str_view utils_str_view_consume_by_delim(utils_str_view* sv, char delim);
+UTILS_DEF utils_str_view utils_str_view_consume_left(utils_str_view* sv, usz n);
+UTILS_DEF utils_str_view utils_str_view_consume_right(utils_str_view* sv, usz n);
 UTILS_DEF utils_str_view utils_str_view_from_cstr(const char* cstr);
 
 #define utils_str_view_eq(a, b) _Generic((a), \
@@ -290,28 +290,33 @@ UTILS_DEF bool utils_str_view_ends_with_cstr(utils_str_view sv, const char* cstr
 UTILS_DEF bool utils_str_view_starts_with_sv(utils_str_view sv, utils_str_view expected_prefix);
 UTILS_DEF bool utils_str_view_starts_with_cstr(utils_str_view sv, const char* cstr);
 
-#define utils_str_view_chop_prefix(sv, prefix) _Generic((prefix), \
-  utils_str_view: utils_str_view_chop_prefix_sv,                  \
-  const char*: utils_str_view_chop_prefix_cstr,                   \
-  char*: utils_str_view_chop_prefix_cstr                          \
+#define utils_str_view_remove_prefix(sv, prefix) _Generic((prefix), \
+  utils_str_view: utils_str_view_remove_prefix_sv,                  \
+  const char*: utils_str_view_remove_prefix_cstr,                   \
+  char*: utils_str_view_remove_prefix_cstr                          \
 )(sv, prefix)
 
-UTILS_DEF bool utils_str_view_chop_prefix_sv(utils_str_view* sv, utils_str_view prefix);
-UTILS_DEF bool utils_str_view_chop_prefix_cstr(utils_str_view* sv, const char* prefix);
+UTILS_DEF bool utils_str_view_remove_prefix_sv(utils_str_view* sv, utils_str_view prefix);
+UTILS_DEF bool utils_str_view_remove_prefix_cstr(utils_str_view* sv, const char* prefix);
 
-#define utils_str_view_chop_suffix(sv, suffix) _Generic((suffix), \
-  utils_str_view: utils_str_view_chop_suffix_sv,                  \
-  const char*: utils_str_view_chop_suffix_cstr,                   \
-  char*: utils_str_view_chop_suffix_cstr                          \
+#define utils_str_view_remove_suffix(sv, suffix) _Generic((suffix), \
+  utils_str_view: utils_str_view_remove_suffix_sv,                  \
+  const char*: utils_str_view_remove_suffix_cstr,                   \
+  char*: utils_str_view_remove_suffix_cstr                          \
 )(sv, suffix)
 
-UTILS_DEF bool utils_str_view_chop_suffix_sv(utils_str_view* sv, utils_str_view suffix);
-UTILS_DEF bool utils_str_view_chop_suffix_cstr(utils_str_view* sv, const char* suffix);
+UTILS_DEF bool utils_str_view_remove_suffix_sv(utils_str_view* sv, utils_str_view suffix);
+UTILS_DEF bool utils_str_view_remove_suffix_cstr(utils_str_view* sv, const char* suffix);
 
 UTILS_DEF utils_str_view utils_str_view_trim_left(utils_str_view sv);
 UTILS_DEF utils_str_view utils_str_view_trim_right(utils_str_view sv);
 UTILS_DEF utils_str_view utils_str_view_trim(utils_str_view sv);
+
 UTILS_DEF int utils_str_view_find(utils_str_view sv, char c);
+UTILS_DEF utils_str_view utils_str_view_substr(utils_str_view sv, usz start, usz length);
+UTILS_DEF char utils_str_view_at(utils_str_view sv, isz index);
+
+UTILS_DEF char* utils_str_view_to_cstr(utils_str_view sv, utils_allocator alloc);
 
 typedef struct {
   char* data;
@@ -563,13 +568,13 @@ typedef utils_flags flags;
 #define str_view_eq utils_str_view_eq
 #define str_view_ends_with utils_str_view_ends_with
 #define str_view_starts_with utils_str_view_starts_with
-#define str_view_chop_prefix utils_str_view_chop_prefix
-#define str_view_chop_suffix utils_str_view_chop_suffix
+#define str_view_remove_prefix utils_str_view_consume_prefix
+#define str_view_remove_suffix utils_str_view_consume_suffix
 #define str_view_make utils_str_view_make
-#define str_view_chop_while utils_str_view_chop_while
-#define str_view_chop_by_delim utils_str_view_chop_by_delim
-#define str_view_chop_left utils_str_view_chop_left
-#define str_view_chop_right utils_str_view_chop_right
+#define str_view_consume_while utils_str_view_consume_while
+#define str_view_consume_by_delim utils_str_view_consume_by_delim
+#define str_view_consume_left utils_str_view_consume_left
+#define str_view_consume_right utils_str_view_consume_right
 #define str_view_from_cstr utils_str_view_from_cstr
 #define str_view_eq_sv utils_str_view_eq_sv
 #define str_view_eq_cstr utils_str_view_eq_cstr
@@ -577,14 +582,16 @@ typedef utils_flags flags;
 #define str_view_ends_with_cstr utils_str_view_ends_with_cstr
 #define str_view_starts_with_sv utils_str_view_starts_with_sv
 #define str_view_starts_with_cstr utils_str_view_starts_with_cstr
-#define str_view_chop_prefix_sv utils_str_view_chop_prefix_sv
-#define str_view_chop_prefix_cstr utils_str_view_chop_prefix_cstr
-#define str_view_chop_suffix_sv utils_str_view_chop_suffix_sv
-#define str_view_chop_suffix_cstr utils_str_view_chop_suffix_cstr
+#define str_view_remove_prefix_sv utils_str_view_consume_prefix_sv
+#define str_view_remove_prefix_cstr utils_str_view_consume_prefix_cstr
+#define str_view_remove_suffix_sv utils_str_view_consume_suffix_sv
+#define str_view_remove_suffix_cstr utils_str_view_consume_suffix_cstr
 #define str_view_trim_left utils_str_view_trim_left
 #define str_view_trim_right utils_str_view_trim_right
 #define str_view_trim utils_str_view_trim
 #define str_view_find utils_str_view_find
+#define str_view_at utils_str_view_at
+#define str_view_to_cstr utils_str_view_to_cstr
 #define str_builder_reserve utils_str_builder_reserve
 #define str_builder_append_bytes utils_str_builder_append_bytes
 #define str_builder_append_cstr utils_str_builder_append_cstr
@@ -1073,7 +1080,7 @@ UTILS_DEF utils_str_view utils_str_view_make(const char* data, usz count) {
   return sv;
 }
 
-UTILS_DEF utils_str_view utils_str_view_chop_while(utils_str_view* sv, int (*p)(int x)) {
+UTILS_DEF utils_str_view utils_str_view_consume_while(utils_str_view* sv, int (*p)(int x)) {
   usz i = 0;
 
   while (i < sv->count && p(sv->data[i])) {
@@ -1086,7 +1093,7 @@ UTILS_DEF utils_str_view utils_str_view_chop_while(utils_str_view* sv, int (*p)(
   return result;
 }
 
-UTILS_DEF utils_str_view utils_str_view_chop_by_delim(utils_str_view* sv, char delim) {
+UTILS_DEF utils_str_view utils_str_view_consume_by_delim(utils_str_view* sv, char delim) {
   usz i = 0;
 
   while (i < sv->count && sv->data[i] != delim) {
@@ -1106,7 +1113,7 @@ UTILS_DEF utils_str_view utils_str_view_chop_by_delim(utils_str_view* sv, char d
   return result;
 }
 
-UTILS_DEF utils_str_view utils_str_view_chop_left(utils_str_view* sv, usz n) {
+UTILS_DEF utils_str_view utils_str_view_consume_left(utils_str_view* sv, usz n) {
   if (n > sv->count) {
     n = sv->count;
   }
@@ -1117,7 +1124,7 @@ UTILS_DEF utils_str_view utils_str_view_chop_left(utils_str_view* sv, usz n) {
   return result;
 }
 
-UTILS_DEF utils_str_view utils_str_view_chop_right(utils_str_view* sv, usz n) {
+UTILS_DEF utils_str_view utils_str_view_consume_right(utils_str_view* sv, usz n) {
   if (n > sv->count) {
     n = sv->count;
   }
@@ -1196,30 +1203,52 @@ UTILS_DEF bool utils_str_view_starts_with_cstr(utils_str_view sv, const char* cs
   return utils_str_view_starts_with_sv(sv, utils_str_view_from_cstr(cstr));
 }
 
-UTILS_DEF bool utils_str_view_chop_prefix_sv(utils_str_view* sv, utils_str_view prefix) {
+UTILS_DEF bool utils_str_view_remove_prefix_sv(utils_str_view* sv, utils_str_view prefix) {
   if (utils_str_view_starts_with_sv(*sv, prefix)) {
-    utils_str_view_chop_left(sv, prefix.count);
+    utils_str_view_consume_left(sv, prefix.count);
     return true;
   }
 
   return false;
 }
 
-UTILS_DEF bool utils_str_view_chop_prefix_cstr(utils_str_view* sv, const char* prefix) {
-  return utils_str_view_chop_prefix_sv(sv, utils_str_view_from_cstr(prefix));
+UTILS_DEF bool utils_str_view_remove_prefix_cstr(utils_str_view* sv, const char* prefix) {
+  return utils_str_view_remove_prefix_sv(sv, utils_str_view_from_cstr(prefix));
 }
 
-UTILS_DEF bool utils_str_view_chop_suffix_sv(utils_str_view* sv, utils_str_view suffix) {
+UTILS_DEF bool utils_str_view_remove_suffix_sv(utils_str_view* sv, utils_str_view suffix) {
   if (utils_str_view_ends_with(*sv, suffix)) {
-    utils_str_view_chop_right(sv, suffix.count);
+    utils_str_view_consume_right(sv, suffix.count);
     return true;
   }
 
   return false;
 }
 
-UTILS_DEF bool utils_str_view_chop_suffix_cstr(utils_str_view* sv, const char* suffix) {
-  return utils_str_view_chop_suffix_sv(sv, utils_str_view_from_cstr(suffix));
+UTILS_DEF bool utils_str_view_remove_suffix_cstr(utils_str_view* sv, const char* suffix) {
+  return utils_str_view_remove_suffix_sv(sv, utils_str_view_from_cstr(suffix));
+}
+
+UTILS_DEF utils_str_view utils_str_view_substr(utils_str_view sv, usz start, usz length) {
+  if (start >= sv.count) {
+    return utils_str_view_make("", 0);
+  }
+
+  if (start + length > sv.count) {
+    length = sv.count - start;
+  }
+
+  return utils_str_view_make(sv.data + start, length);
+}
+
+UTILS_DEF char utils_str_view_at(utils_str_view sv, isz index) {
+  if (index < 0) {
+    index = (isz)sv.count + index;
+  }
+  if (index < 0 || (usz)index >= sv.count) {
+    return '\0';
+  }
+  return sv.data[index];
 }
 
 UTILS_DEF int utils_str_view_find(utils_str_view sv, char c) {
@@ -1975,7 +2004,7 @@ UTILS_DEF bool utils_flags_parse(utils_flags* f, int flagc, char** flagv) {
       continue;
     }
 
-    utils_str_view_chop_left(&got, 1);
+    utils_str_view_consume_left(&got, 1);
 
     bool found = false;
 
@@ -2010,7 +2039,7 @@ UTILS_DEF bool utils_flags_parse(utils_flags* f, int flagc, char** flagv) {
       }
 
       utils_str_view suffix = got;
-      utils_str_view_chop_left(&suffix, candidate_len);
+      utils_str_view_consume_left(&suffix, candidate_len);
 
       if (suffix.count == 0 || suffix.data[0] != '=') {
         continue;
@@ -2018,7 +2047,7 @@ UTILS_DEF bool utils_flags_parse(utils_flags* f, int flagc, char** flagv) {
 
       found = true;
       utils_str_view value = suffix;
-      utils_str_view_chop_left(&value, 1);
+      utils_str_view_consume_left(&value, 1);
 
       if (!utils__set_flag_value(flag_slot, value)) {
         return false;
