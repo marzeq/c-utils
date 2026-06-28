@@ -325,6 +325,8 @@ typedef struct {
   utils_allocator alloc;
 } utils_str_builder;
 
+#define utils_str_builder_new(a) { .alloc = (a) }
+
 #define utils_sfmt "%.*s"
 #define utils_sfmtarg(sv) (int)(sv).count, (sv).data
 
@@ -362,6 +364,8 @@ typedef struct {
   usz capacity;              \
   utils_allocator alloc;     \
 }
+
+#define utils_da_new(a) { .alloc = (a) }
 
 UTILS_DEF void* utils_impl_da_base_resize(utils_impl_da_base* arr, usz elem_size, usz new_capacity);
 UTILS_DEF bool utils_impl_da_base_append_impl(utils_impl_da_base* arr, void* value, usz elem_size);
@@ -428,6 +432,8 @@ typedef struct {
   usz capacity;                  \
   utils_allocator alloc;         \
 }
+
+#define utils_map_new(a) { .alloc = (a) }
 
 UTILS_DEF bool utils_impl_map_insert_impl(
   utils_impl_map_base* utils_map,
@@ -523,6 +529,8 @@ typedef struct utils_flags {
   utils_allocator alloc;
 } utils_flags;
 
+#define utils_flags_new(a) { .alloc = (a) }
+
 #define utils_add_flag(a, name, description, def) \
   _Generic((def),                                 \
     char*: utils_impl_add_flag_string,            \
@@ -568,8 +576,8 @@ typedef utils_flags flags;
 #define str_view_eq utils_str_view_eq
 #define str_view_ends_with utils_str_view_ends_with
 #define str_view_starts_with utils_str_view_starts_with
-#define str_view_remove_prefix utils_str_view_consume_prefix
-#define str_view_remove_suffix utils_str_view_consume_suffix
+#define str_view_remove_prefix utils_str_view_remove_prefix
+#define str_view_remove_suffix utils_str_view_remove_suffix
 #define str_view_make utils_str_view_make
 #define str_view_consume_while utils_str_view_consume_while
 #define str_view_consume_by_delim utils_str_view_consume_by_delim
@@ -582,15 +590,16 @@ typedef utils_flags flags;
 #define str_view_ends_with_cstr utils_str_view_ends_with_cstr
 #define str_view_starts_with_sv utils_str_view_starts_with_sv
 #define str_view_starts_with_cstr utils_str_view_starts_with_cstr
-#define str_view_remove_prefix_sv utils_str_view_consume_prefix_sv
-#define str_view_remove_prefix_cstr utils_str_view_consume_prefix_cstr
-#define str_view_remove_suffix_sv utils_str_view_consume_suffix_sv
-#define str_view_remove_suffix_cstr utils_str_view_consume_suffix_cstr
+#define str_view_remove_prefix_sv utils_str_view_remove_prefix_sv
+#define str_view_remove_prefix_cstr utils_str_view_remove_prefix_cstr
+#define str_view_remove_suffix_sv utils_str_view_remove_suffix_sv
+#define str_view_remove_suffix_cstr utils_str_view_remove_suffix_cstr
 #define str_view_trim_left utils_str_view_trim_left
 #define str_view_trim_right utils_str_view_trim_right
 #define str_view_trim utils_str_view_trim
 #define str_view_find utils_str_view_find
 #define str_view_at utils_str_view_at
+#define str_view_substr utils_str_view_substr
 #define str_view_to_cstr utils_str_view_to_cstr
 #define str_builder_reserve utils_str_builder_reserve
 #define str_builder_append_bytes utils_str_builder_append_bytes
@@ -634,6 +643,11 @@ typedef utils_flags flags;
 #define flags_reset utils_flags_reset
 #define flags_print_help utils_flags_print_help
 #define flags_parse utils_flags_parse
+
+#define str_builder_new utils_str_builder_new
+#define da_new utils_da_new
+#define map_new utils_map_new
+#define flags_new utils_flags_new
 #endif
 
 #ifdef UTILS_IMPLEMENTATION
