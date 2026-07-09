@@ -1983,6 +1983,11 @@ UTILS_DEF void utils_flags_print_help(utils_flags* f, const char* prog_name) {
 }
 
 UTILS_DEF bool utils_flags_parse(utils_flags* f, int flagc, char** flagv) {
+  if (f->positional_args.alloc.alloc == nil) {
+    assert(f->alloc.alloc != nil && f->alloc.realloc != nil && f->alloc.free != nil);
+    f->positional_args.alloc = f->alloc;
+  }
+
   if (f->failed_adding) {
     return false;
   }
