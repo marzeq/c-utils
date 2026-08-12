@@ -36,7 +36,7 @@ Notes:
     MUST have a valid allocator set in the `alloc` field of the struct before use.
     Using these without a valid allocator will cause an instant assertion failure.
 
-Dual-licensed under either of these:
+Dual-licensed under either of these, pick one:
 
 A) The Unlicense (Public Domain)
 
